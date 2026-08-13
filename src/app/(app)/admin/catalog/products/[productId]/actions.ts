@@ -8,16 +8,22 @@ export async function addVariantAction(formData: FormData) {
   await requireRole("admin");
 
   const productId = String(formData.get("product_id") ?? "");
+  const companyId = String(formData.get("company_id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
+  const sku = String(formData.get("sku") ?? "").trim() || null;
+  const description = String(formData.get("description") ?? "").trim() || null;
   const unitPrice = Number(formData.get("unit_price") ?? 0);
 
-  if (!productId || !name) throw new Error("Falta el nombre de la variante.");
+  if (!productId || !companyId || !name) throw new Error("Falta el nombre de la variante.");
   if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error("Precio inválido.");
 
   const supabase = await createClient();
   const { error } = await supabase.from("product_variants").insert({
     product_id: productId,
+    company_id: companyId,
     name,
+    sku,
+    description,
     unit_price: unitPrice,
   });
   if (error) throw new Error(error.message);

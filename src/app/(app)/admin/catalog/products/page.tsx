@@ -10,10 +10,10 @@ type CompanyOption = { id: string; name: string; short_code: string };
 
 type ProductRow = {
   id: string;
-  sku: string;
   name: string;
   active: boolean;
   companies: { name: string; short_code: string } | null;
+  product_variants: { id: string }[];
 };
 
 export default async function ProductsPage() {
@@ -23,7 +23,7 @@ export default async function ProductsPage() {
     supabase.from("companies").select("id, name, short_code").order("name"),
     supabase
       .from("products")
-      .select("id, sku, name, active, companies(name, short_code)")
+      .select("id, name, active, companies(name, short_code), product_variants(id)")
       .order("name"),
   ]);
 
@@ -35,9 +35,8 @@ export default async function ProductsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Productos</h1>
         <p className="text-sm text-[var(--ink-muted)]">
-          Cada producto pertenece a una empresa. Al crearlo se agrega su
-          primera variante — si no maneja variantes reales, deja
-          &quot;Único&quot; y ahí queda su precio.
+          Cada producto es una &quot;familia&quot; (ej. Papel Lustre); la clave,
+          descripción y precio viven en cada variante (ej. cada color).
         </p>
       </div>
 
@@ -57,7 +56,7 @@ export default async function ProductsPage() {
               name="company_id"
               required
               defaultValue=""
-              className="rounded-xl border border-black/10 bg-white/70 px-3.5 py-2.5 text-sm outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 dark:border-white/10 dark:bg-white/5"
+              className="rounded-xl border border-black/10 bg-white/70 px-3.5 py-2.5 text-sm outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 dark:border-white/10 dark:bg-white/5 sm:col-span-2"
             >
               <option value="" disabled>
                 Empresa…
@@ -68,19 +67,27 @@ export default async function ProductsPage() {
                 </option>
               ))}
             </select>
-            <Input name="sku" placeholder="Clave (SKU)" required />
             <Input
               name="name"
-              placeholder="Nombre del producto"
+              placeholder="Nombre de la familia (ej. Papel Lustre 50x70 60g)"
               required
               className="sm:col-span-2"
             />
             <Input
               name="description"
-              placeholder="Descripción (opcional)"
+              placeholder="Descripción general de la familia (opcional)"
               className="sm:col-span-2"
             />
-            <Input name="variant_name" placeholder="Nombre de la variante" defaultValue="Único" />
+            <p className="text-xs font-medium text-[var(--ink-muted)] sm:col-span-2">
+              Primera variante:
+            </p>
+            <Input name="variant_name" placeholder="Nombre (ej. Amarillo Canario)" defaultValue="Único" />
+            <Input name="variant_sku" placeholder="Clave (opcional — no todas las empresas usan)" />
+            <Input
+              name="variant_description"
+              placeholder="Descripción específica (opcional)"
+              className="sm:col-span-2"
+            />
             <Input
               name="unit_price"
               type="number"
@@ -102,7 +109,9 @@ export default async function ProductsPage() {
             <GlassCard className="flex items-center justify-between transition hover:bg-white/80">
               <div>
                 <span className="font-medium">{p.name}</span>{" "}
-                <span className="text-xs text-[var(--ink-muted)]">{p.sku}</span>
+                <span className="text-xs text-[var(--ink-muted)]">
+                  {p.product_variants?.length ?? 0} variante(s)
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 {p.companies && <Badge tone="sky">{p.companies.short_code}</Badge>}

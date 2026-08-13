@@ -5,19 +5,21 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 
-/** Crea el producto y su primera variante (con precio) en un solo paso. */
+/** Crea la familia de producto y su primera variante (con clave y precio) en un paso. */
 export async function createProductAction(formData: FormData) {
   await requireRole("admin");
 
   const companyId = String(formData.get("company_id") ?? "");
-  const sku = String(formData.get("sku") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim() || null;
+  const familyDescription = String(formData.get("description") ?? "").trim() || null;
   const variantName = String(formData.get("variant_name") ?? "Único").trim() || "Único";
+  const variantSku = String(formData.get("variant_sku") ?? "").trim() || null;
+  const variantDescription =
+    String(formData.get("variant_description") ?? "").trim() || null;
   const unitPrice = Number(formData.get("unit_price") ?? 0);
 
-  if (!companyId || !sku || !name) {
-    throw new Error("Empresa, clave y nombre son obligatorios.");
+  if (!companyId || !name) {
+    throw new Error("Empresa y nombre son obligatorios.");
   }
   if (!Number.isFinite(unitPrice) || unitPrice < 0) {
     throw new Error("El precio unitario debe ser un número válido.");
@@ -27,7 +29,7 @@ export async function createProductAction(formData: FormData) {
 
   const { data: product, error: productError } = await supabase
     .from("products")
-    .insert({ company_id: companyId, sku, name, description })
+    .insert({ company_id: companyId, name, description: familyDescription })
     .select("id")
     .single();
 
@@ -37,7 +39,10 @@ export async function createProductAction(formData: FormData) {
 
   const { error: variantError } = await supabase.from("product_variants").insert({
     product_id: product.id,
+    company_id: companyId,
     name: variantName,
+    sku: variantSku,
+    description: variantDescription,
     unit_price: unitPrice,
   });
 
