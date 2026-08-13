@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -11,6 +12,7 @@ type Quote = {
   id: string;
   folio: string;
   status: string;
+  client_id: string | null;
   client_name_snapshot: string;
   company_name_snapshot: string;
   phone_snapshot: string | null;
@@ -21,6 +23,12 @@ type Quote = {
   prompt_payment_enabled: boolean;
   prompt_payment_pct: number;
   special_client_enabled: boolean;
+  rfc_snapshot: string | null;
+  tax_regime_snapshot: string | null;
+  cfdi_use_snapshot: string | null;
+  carrier_name: string | null;
+  delivery_type: "address" | "pickup" | null;
+  delivery_address: string | null;
   subtotal: number;
   discount_total: number;
   iva_total: number;
@@ -62,7 +70,7 @@ export default async function QuoteDetailPage({
   const { data: quoteData } = await supabase
     .from("quotes")
     .select(
-      "id, folio, status, client_name_snapshot, company_name_snapshot, phone_snapshot, email_snapshot, address_snapshot, purchase_condition, payment_method, prompt_payment_enabled, prompt_payment_pct, special_client_enabled, subtotal, discount_total, iva_total, iva_pct, grand_total"
+      "id, folio, status, client_id, client_name_snapshot, company_name_snapshot, phone_snapshot, email_snapshot, address_snapshot, purchase_condition, payment_method, prompt_payment_enabled, prompt_payment_pct, special_client_enabled, rfc_snapshot, tax_regime_snapshot, cfdi_use_snapshot, carrier_name, delivery_type, delivery_address, subtotal, discount_total, iva_total, iva_pct, grand_total"
     )
     .eq("id", quoteId)
     .single();
@@ -70,6 +78,21 @@ export default async function QuoteDetailPage({
   if (!quoteData) notFound();
   const quote = quoteData as Quote;
   const editable = quote.status !== "closed";
+
+  let fiscalDocUrl: string | null = null;
+  if (quote.client_id) {
+    const { data: client } = await supabase
+      .from("clients")
+      .select("fiscal_doc_path")
+      .eq("id", quote.client_id)
+      .single();
+    if (client?.fiscal_doc_path) {
+      const { data: signed } = await supabase.storage
+        .from("fiscal-docs")
+        .createSignedUrl(client.fiscal_doc_path, 60 * 10);
+      fiscalDocUrl = signed?.signedUrl ?? null;
+    }
+  }
 
   const [{ data: itemsData }, { data: companiesData }, { data: productsData }] =
     await Promise.all([
@@ -141,8 +164,58 @@ export default async function QuoteDetailPage({
             {quote.client_name_snapshot || "Cotización nueva"}
           </h1>
         </div>
-        <Badge tone="blue">{STATUS_LABEL[quote.status] ?? quote.status}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone="blue">{STATUS_LABEL[quote.status] ?? quote.status}</Badge>
+          {quote.status === "draft" && (
+            <Link href={`/quotes/${quote.id}/approve`}>
+              <Button variant="primary" className="px-4 py-2 text-sm">
+                Marcar como Aprobada
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
+
+      {quote.status !== "draft" && (
+        <GlassCard>
+          <h2 className="mb-3 text-sm font-medium text-[var(--ink-muted)]">
+            Datos fiscales y transporte
+          </h2>
+          <div className="grid gap-2 text-sm sm:grid-cols-2">
+            <p>
+              <span className="text-[var(--ink-muted)]">RFC:</span> {quote.rfc_snapshot}
+            </p>
+            <p>
+              <span className="text-[var(--ink-muted)]">Régimen fiscal:</span>{" "}
+              {quote.tax_regime_snapshot}
+            </p>
+            <p className="sm:col-span-2">
+              <span className="text-[var(--ink-muted)]">Uso de CFDI:</span>{" "}
+              {quote.cfdi_use_snapshot}
+            </p>
+            <p>
+              <span className="text-[var(--ink-muted)]">Transportista:</span>{" "}
+              {quote.carrier_name}
+            </p>
+            <p>
+              <span className="text-[var(--ink-muted)]">Entrega:</span>{" "}
+              {quote.delivery_type === "pickup"
+                ? "Ocurre (recolecta en oficinas de la transportista)"
+                : `A domicilio — ${quote.delivery_address}`}
+            </p>
+            {fiscalDocUrl && (
+              <a
+                href={fiscalDocUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-blue underline sm:col-span-2"
+              >
+                Ver constancia de situación fiscal
+              </a>
+            )}
+          </div>
+        </GlassCard>
+      )}
 
       <GlassCard strong>
         <h2 className="mb-4 text-sm font-medium">Datos del cliente</h2>
