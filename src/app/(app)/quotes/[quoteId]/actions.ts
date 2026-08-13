@@ -235,3 +235,212 @@ export async function generateFinalQuoteAction(formData: FormData) {
 
   revalidatePath(`/quotes/${quoteId}`);
 }
+
+/**
+ * Adjunta la factura que mandó un proveedor (copia por correo). La primera
+ * factura que llega mueve la cotización de 'final' a 'invoiced' — las
+ * siguientes (de otros proveedores) solo se agregan, sin repetir la
+ * transición.
+ */
+export async function attachInvoiceAction(formData: FormData) {
+  const { supabase, user } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  const companyId = String(formData.get("company_id") ?? "");
+  const file = formData.get("invoice_file");
+
+  if (!quoteId || !companyId) throw new Error("Falta información.");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Selecciona un archivo de factura.");
+  }
+
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("id, status")
+    .eq("id", quoteId)
+    .single();
+  if (quoteError || !quote) throw new Error("Cotización no encontrada.");
+  if (quote.status !== "final" && quote.status !== "invoiced") {
+    throw new Error("Solo se pueden adjuntar facturas en estatus Cotización final o Factura.");
+  }
+
+  const path = `${quoteId}/${companyId}-${Date.now()}-${file.name}`;
+  const { error: uploadError } = await supabase.storage
+    .from("invoices")
+    .upload(path, file, { upsert: false });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error: attachError } = await supabase.from("quote_attachments").insert({
+    quote_id: quoteId,
+    kind: "invoice",
+    company_id: companyId,
+    file_path: path,
+    file_name: file.name,
+    uploaded_by: user.id,
+  });
+  if (attachError) throw new Error(attachError.message);
+
+  if (quote.status === "final") {
+    await supabase
+      .from("quotes")
+      .update({ status: "invoiced", invoiced_at: new Date().toISOString() })
+      .eq("id", quoteId);
+    await supabase.from("quote_status_history").insert({
+      quote_id: quoteId,
+      from_status: "final",
+      to_status: "invoiced",
+      changed_by: user.id,
+    });
+  }
+
+  revalidatePath(`/quotes/${quoteId}`);
+}
+
+/**
+ * Pasa a 'ordered' y crea el renglón de cotejo (✓/✗) para cada línea de la
+ * cotización, listo para que el vendedor confirme qué sí llegó.
+ */
+export async function markOrderedAction(formData: FormData) {
+  const { supabase, user } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("id, status")
+    .eq("id", quoteId)
+    .single();
+  if (quoteError || !quote) throw new Error("Cotización no encontrada.");
+  if (quote.status !== "invoiced") {
+    throw new Error("La cotización debe tener al menos una factura adjunta.");
+  }
+
+  const { data: items, error: itemsError } = await supabase
+    .from("quote_items")
+    .select("id")
+    .eq("quote_id", quoteId);
+  if (itemsError) throw new Error(itemsError.message);
+
+  const fulfillmentRows = (items ?? []).map((i) => ({ quote_item_id: i.id }));
+  if (fulfillmentRows.length > 0) {
+    const { error: fulfillmentError } = await supabase
+      .from("quote_item_fulfillment")
+      .upsert(fulfillmentRows, { onConflict: "quote_item_id", ignoreDuplicates: true });
+    if (fulfillmentError) throw new Error(fulfillmentError.message);
+  }
+
+  const { error: updateError } = await supabase
+    .from("quotes")
+    .update({ status: "ordered", ordered_at: new Date().toISOString() })
+    .eq("id", quoteId);
+  if (updateError) throw new Error(updateError.message);
+
+  await supabase.from("quote_status_history").insert({
+    quote_id: quoteId,
+    from_status: "invoiced",
+    to_status: "ordered",
+    changed_by: user.id,
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+}
+
+/** Marca una línea como recibida (✓), faltante (✗), o pendiente (sin marcar). */
+export async function updateFulfillmentAction(formData: FormData) {
+  const { supabase, user } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  const quoteItemId = String(formData.get("quote_item_id") ?? "");
+  const receivedRaw = String(formData.get("received") ?? "");
+  const note = String(formData.get("note") ?? "").trim() || null;
+
+  if (!quoteId || !quoteItemId) throw new Error("Falta información.");
+
+  const received = receivedRaw === "true" ? true : receivedRaw === "false" ? false : null;
+
+  const { error } = await supabase
+    .from("quote_item_fulfillment")
+    .update({ received, note, checked_by: user.id, checked_at: new Date().toISOString() })
+    .eq("quote_item_id", quoteItemId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/quotes/${quoteId}`);
+}
+
+/** Cierra el ciclo de la cotización una vez cotejada la recepción. */
+export async function closeQuoteAction(formData: FormData) {
+  const { supabase, user } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("id, status")
+    .eq("id", quoteId)
+    .single();
+  if (quoteError || !quote) throw new Error("Cotización no encontrada.");
+  if (quote.status !== "ordered") throw new Error("Solo se puede cerrar desde el estatus Pedido.");
+
+  const { error } = await supabase
+    .from("quotes")
+    .update({ status: "closed", closed_at: new Date().toISOString() })
+    .eq("id", quoteId);
+  if (error) throw new Error(error.message);
+
+  await supabase.from("quote_status_history").insert({
+    quote_id: quoteId,
+    from_status: "ordered",
+    to_status: "closed",
+    changed_by: user.id,
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+}
+
+/** Activa el back order del cliente ligado a esta cotización. */
+export async function setBackorderAction(formData: FormData) {
+  const { supabase } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  const note = String(formData.get("backorder_note") ?? "").trim() || null;
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("client_id")
+    .eq("id", quoteId)
+    .single();
+  if (quoteError || !quote?.client_id) throw new Error("Esta cotización no tiene cliente asociado.");
+
+  const { error } = await supabase
+    .from("clients")
+    .update({
+      has_active_backorder: true,
+      backorder_note: note,
+      backorder_opened_at: new Date().toISOString(),
+      backorder_closed_at: null,
+    })
+    .eq("id", quote.client_id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/quotes/${quoteId}`);
+}
+
+/** Descarta/cierra el back order del cliente ligado a esta cotización. */
+export async function closeBackorderAction(formData: FormData) {
+  const { supabase } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("client_id")
+    .eq("id", quoteId)
+    .single();
+  if (quoteError || !quote?.client_id) throw new Error("Esta cotización no tiene cliente asociado.");
+
+  const { error } = await supabase
+    .from("clients")
+    .update({ has_active_backorder: false, backorder_closed_at: new Date().toISOString() })
+    .eq("id", quote.client_id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/quotes/${quoteId}`);
+}

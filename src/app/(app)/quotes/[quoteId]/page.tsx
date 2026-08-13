@@ -7,8 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ProductPicker } from "@/components/quotes/product-picker";
 import {
+  attachInvoiceAction,
+  closeBackorderAction,
+  closeQuoteAction,
   generateFinalQuoteAction,
+  markOrderedAction,
   removeItemAction,
+  setBackorderAction,
+  updateFulfillmentAction,
   updateItemDiscountAction,
   updateQuoteHeaderAction,
 } from "./actions";
@@ -85,10 +91,14 @@ export default async function QuoteDetailPage({
   const editable = quote.status !== "closed";
 
   let fiscalDocUrl: string | null = null;
+  let clientBackorder: {
+    has_active_backorder: boolean;
+    backorder_note: string | null;
+  } | null = null;
   if (quote.client_id) {
     const { data: client } = await supabase
       .from("clients")
-      .select("fiscal_doc_path")
+      .select("fiscal_doc_path, has_active_backorder, backorder_note")
       .eq("id", quote.client_id)
       .single();
     if (client?.fiscal_doc_path) {
@@ -97,36 +107,83 @@ export default async function QuoteDetailPage({
         .createSignedUrl(client.fiscal_doc_path, 60 * 10);
       fiscalDocUrl = signed?.signedUrl ?? null;
     }
+    if (client) {
+      clientBackorder = {
+        has_active_backorder: client.has_active_backorder,
+        backorder_note: client.backorder_note,
+      };
+    }
   }
 
-  const [{ data: itemsData }, { data: companiesData }, { data: productsData }, { data: providerQuotesData }] =
-    await Promise.all([
-      supabase
-        .from("quote_items")
-        .select(
-          "id, company_id, sku_snapshot, product_name_snapshot, variant_name_snapshot, unit_price_snapshot, quantity_packages, units_per_package_snapshot, quantity_units, discount_pct, line_total"
-        )
-        .eq("quote_id", quoteId)
-        .order("sort_order")
-        .order("created_at"),
-      supabase.from("companies").select("id, name, short_code"),
-      supabase
-        .from("products")
-        .select(
-          "id, name, company_id, companies(name), product_variants(id, name, sku, unit_price, active, product_packages(id, units_per_package, label, active))"
-        )
-        .eq("active", true)
-        .order("name"),
-      supabase
-        .from("provider_quotes")
-        .select("id, company_id, folio, generated_at")
-        .eq("quote_id", quoteId),
-    ]);
+  const [
+    { data: itemsData },
+    { data: companiesData },
+    { data: productsData },
+    { data: providerQuotesData },
+    { data: invoicesData },
+    { data: fulfillmentData },
+  ] = await Promise.all([
+    supabase
+      .from("quote_items")
+      .select(
+        "id, company_id, sku_snapshot, product_name_snapshot, variant_name_snapshot, unit_price_snapshot, quantity_packages, units_per_package_snapshot, quantity_units, discount_pct, line_total"
+      )
+      .eq("quote_id", quoteId)
+      .order("sort_order")
+      .order("created_at"),
+    supabase.from("companies").select("id, name, short_code"),
+    supabase
+      .from("products")
+      .select(
+        "id, name, company_id, companies(name), product_variants(id, name, sku, unit_price, active, product_packages(id, units_per_package, label, active))"
+      )
+      .eq("active", true)
+      .order("name"),
+    supabase
+      .from("provider_quotes")
+      .select("id, company_id, folio, generated_at")
+      .eq("quote_id", quoteId),
+    supabase
+      .from("quote_attachments")
+      .select("id, company_id, file_path, file_name")
+      .eq("quote_id", quoteId)
+      .eq("kind", "invoice"),
+    supabase
+      .from("quote_item_fulfillment")
+      .select("quote_item_id, received, note")
+      .in(
+        "quote_item_id",
+        (
+          await supabase.from("quote_items").select("id").eq("quote_id", quoteId)
+        ).data?.map((i) => i.id) ?? []
+      ),
+  ]);
 
   const items = (itemsData ?? []) as QuoteItem[];
   const companies = (companiesData ?? []) as { id: string; name: string; short_code: string }[];
   const companyShortCode = new Map(companies.map((c) => [c.id, c.short_code]));
   const companyName = new Map(companies.map((c) => [c.id, c.name]));
+
+  type Invoice = { id: string; company_id: string | null; file_path: string; file_name: string };
+  const invoices = (invoicesData ?? []) as Invoice[];
+  const invoicesByCompany = new Map<string, Invoice[]>();
+  invoices.forEach((inv) => {
+    if (!inv.company_id) return;
+    invoicesByCompany.set(inv.company_id, [...(invoicesByCompany.get(inv.company_id) ?? []), inv]);
+  });
+  const invoiceUrls = new Map<string, string>();
+  for (const inv of invoices) {
+    const { data: signed } = await supabase.storage
+      .from("invoices")
+      .createSignedUrl(inv.file_path, 60 * 10);
+    if (signed?.signedUrl) invoiceUrls.set(inv.id, signed.signedUrl);
+  }
+
+  type Fulfillment = { quote_item_id: string; received: boolean | null; note: string | null };
+  const fulfillmentByItem = new Map<string, Fulfillment>(
+    ((fulfillmentData ?? []) as Fulfillment[]).map((f) => [f.quote_item_id, f])
+  );
+  const missingItems = items.filter((i) => fulfillmentByItem.get(i.id)?.received === false);
 
   type ProviderQuote = { id: string; company_id: string; folio: string; generated_at: string };
   const providerQuotes = (providerQuotesData ?? []) as ProviderQuote[];
@@ -136,6 +193,7 @@ export default async function QuoteDetailPage({
       ...pq,
       itemCount: companyItems.length,
       subtotal: companyItems.reduce((sum, i) => sum + Number(i.line_total), 0),
+      invoices: invoicesByCompany.get(pq.company_id) ?? [],
     };
   });
 
@@ -201,6 +259,22 @@ export default async function QuoteDetailPage({
               </Button>
             </form>
           )}
+          {quote.status === "invoiced" && (
+            <form action={markOrderedAction}>
+              <input type="hidden" name="quote_id" value={quote.id} />
+              <Button type="submit" className="px-4 py-2 text-sm">
+                Marcar como Pedido
+              </Button>
+            </form>
+          )}
+          {quote.status === "ordered" && (
+            <form action={closeQuoteAction}>
+              <input type="hidden" name="quote_id" value={quote.id} />
+              <Button type="submit" variant="secondary" className="px-4 py-2 text-sm">
+                Cerrar cotización
+              </Button>
+            </form>
+          )}
         </div>
       </div>
 
@@ -251,22 +325,167 @@ export default async function QuoteDetailPage({
             Cotizaciones por proveedor
           </h2>
           {providerQuoteSummaries.map((pq) => (
-            <GlassCard key={pq.id} className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="flex items-center gap-2 font-medium">
-                  <Badge tone="sky">{companyShortCode.get(pq.company_id) ?? "?"}</Badge>
-                  {companyName.get(pq.company_id) ?? "Proveedor"}
-                </p>
-                <p className="text-xs text-[var(--ink-muted)]">
-                  {pq.folio} · {pq.itemCount} producto(s) · $
-                  {pq.subtotal.toFixed(2)}
-                </p>
+            <GlassCard key={pq.id} className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="flex items-center gap-2 font-medium">
+                    <Badge tone="sky">{companyShortCode.get(pq.company_id) ?? "?"}</Badge>
+                    {companyName.get(pq.company_id) ?? "Proveedor"}
+                  </p>
+                  <p className="text-xs text-[var(--ink-muted)]">
+                    {pq.folio} · {pq.itemCount} producto(s) · $
+                    {pq.subtotal.toFixed(2)}
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  disabled
+                  className="px-3 py-1.5 text-xs"
+                  title="Próximamente"
+                >
+                  Descargar PDF (próximamente)
+                </Button>
               </div>
-              <Button variant="secondary" disabled className="px-3 py-1.5 text-xs" title="Próximamente">
-                Descargar PDF (próximamente)
-              </Button>
+
+              {pq.invoices.length > 0 && (
+                <div className="flex flex-wrap gap-2 border-t border-black/5 pt-2 dark:border-white/10">
+                  {pq.invoices.map((inv) => (
+                    <a
+                      key={inv.id}
+                      href={invoiceUrls.get(inv.id) ?? "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-xs text-brand-blue underline"
+                    >
+                      📄 {inv.file_name}
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {(quote.status === "final" || quote.status === "invoiced") && (
+                <form
+                  action={attachInvoiceAction}
+                  className="flex flex-wrap items-center gap-2 border-t border-black/5 pt-2 dark:border-white/10"
+                >
+                  <input type="hidden" name="quote_id" value={quote.id} />
+                  <input type="hidden" name="company_id" value={pq.company_id} />
+                  <input
+                    type="file"
+                    name="invoice_file"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    required
+                    className="text-xs"
+                  />
+                  <Button type="submit" variant="secondary" className="px-3 py-1.5 text-xs">
+                    Adjuntar factura
+                  </Button>
+                </form>
+              )}
             </GlassCard>
           ))}
+        </section>
+      )}
+
+      {(quote.status === "ordered" || quote.status === "closed") && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium text-[var(--ink-muted)]">
+            Cotejo de recepción
+          </h2>
+          {items.map((item) => {
+            const fulfillment = fulfillmentByItem.get(item.id);
+            const received = fulfillment?.received ?? null;
+            return (
+              <GlassCard key={item.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="flex flex-wrap items-center gap-2 font-medium">
+                    <Badge tone="sky">{companyShortCode.get(item.company_id) ?? "?"}</Badge>
+                    {item.sku_snapshot && <Badge tone="blue">{item.sku_snapshot}</Badge>}
+                    {item.product_name_snapshot} — {item.variant_name_snapshot}
+                  </p>
+                  <p className="text-xs text-[var(--ink-muted)]">
+                    {item.units_per_package_snapshot
+                      ? `${item.quantity_packages} paquete(s) × ${item.units_per_package_snapshot} pzas`
+                      : `${item.quantity_units} unidad(es)`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {received === true && <Badge tone="green">✓ Recibido</Badge>}
+                  {received === false && <Badge tone="neutral">✕ Faltante</Badge>}
+                  {received === null && <Badge tone="sky">Pendiente</Badge>}
+                  {quote.status === "ordered" && (
+                    <>
+                      <form action={updateFulfillmentAction}>
+                        <input type="hidden" name="quote_id" value={quote.id} />
+                        <input type="hidden" name="quote_item_id" value={item.id} />
+                        <input type="hidden" name="received" value="true" />
+                        <button type="submit" className="text-emerald-600 hover:opacity-70" title="Sí llegó">
+                          ✓
+                        </button>
+                      </form>
+                      <form action={updateFulfillmentAction}>
+                        <input type="hidden" name="quote_id" value={quote.id} />
+                        <input type="hidden" name="quote_item_id" value={item.id} />
+                        <input type="hidden" name="received" value="false" />
+                        <button type="submit" className="text-red-600 hover:opacity-70" title="No llegó">
+                          ✕
+                        </button>
+                      </form>
+                    </>
+                  )}
+                </div>
+              </GlassCard>
+            );
+          })}
+
+          {missingItems.length > 0 && (
+            <GlassCard className="space-y-3">
+              <h3 className="text-sm font-medium">Faltantes</h3>
+              <ul className="list-inside list-disc space-y-1 text-sm text-[var(--ink-muted)]">
+                {missingItems.map((item) => (
+                  <li key={item.id}>
+                    {item.sku_snapshot ? `[${item.sku_snapshot}] ` : ""}
+                    {item.product_name_snapshot} — {item.variant_name_snapshot} (
+                    {item.units_per_package_snapshot
+                      ? `${item.quantity_packages} paquete(s)`
+                      : `${item.quantity_units} unidad(es)`}
+                    )
+                  </li>
+                ))}
+              </ul>
+
+              {quote.client_id && (
+                <div className="border-t border-black/5 pt-3 dark:border-white/10">
+                  {clientBackorder?.has_active_backorder ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-amber-700">
+                        ⚠️ Back order activo
+                        {clientBackorder.backorder_note ? `: ${clientBackorder.backorder_note}` : "."}
+                      </p>
+                      <form action={closeBackorderAction}>
+                        <input type="hidden" name="quote_id" value={quote.id} />
+                        <Button type="submit" variant="secondary" className="px-3 py-1.5 text-xs">
+                          Descartar back order
+                        </Button>
+                      </form>
+                    </div>
+                  ) : (
+                    <form action={setBackorderAction} className="flex flex-wrap items-center gap-2">
+                      <input type="hidden" name="quote_id" value={quote.id} />
+                      <Input
+                        name="backorder_note"
+                        placeholder="Nota (opcional)"
+                        className="max-w-xs"
+                      />
+                      <Button type="submit" variant="secondary" className="px-3 py-1.5 text-xs">
+                        ¿Cliente acepta back order?
+                      </Button>
+                    </form>
+                  )}
+                </div>
+              )}
+            </GlassCard>
+          )}
         </section>
       )}
 
