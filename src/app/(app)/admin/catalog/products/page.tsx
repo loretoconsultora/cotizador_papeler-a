@@ -106,14 +106,14 @@ export default async function ProductsPage() {
       <section className="space-y-3">
         {products.map((p) => (
           <Link key={p.id} href={`/admin/catalog/products/${p.id}`}>
-            <GlassCard className="flex items-center justify-between transition hover:bg-white/80">
-              <div>
+            <GlassCard className="flex flex-wrap items-center justify-between gap-2 transition hover:bg-white/80">
+              <div className="min-w-0">
                 <span className="font-medium">{p.name}</span>{" "}
                 <span className="text-xs text-[var(--ink-muted)]">
                   {p.product_variants?.length ?? 0} variante(s)
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {p.companies && <Badge tone="sky">{p.companies.short_code}</Badge>}
                 {!p.active && <Badge tone="neutral">Inactivo</Badge>}
               </div>

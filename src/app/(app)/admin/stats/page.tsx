@@ -53,15 +53,30 @@ export default async function AdminStatsPage() {
     };
   });
 
-  const byCompany = companies.map((c) => {
-    const companyItems = items.filter((i) => i.company_id === c.id);
-    const quoteIds = new Set(companyItems.map((i) => i.quote_id));
-    return {
-      name: c.name,
-      quoteCount: quoteIds.size,
-      amount: companyItems.reduce((sum, i) => sum + Number(i.line_total), 0),
-    };
-  });
+  // "Facturado por empresa" es aproximado: suma line_total de las líneas de
+  // esa empresa dentro de cotizaciones ya facturadas (invoiced_at). No resta
+  // el descuento por pronto pago ni el IVA, que se calculan a nivel de toda
+  // la cotización y no por empresa — se etiqueta explícitamente como aprox.
+  const invoicedQuoteIds = new Set(quotes.filter((q) => q.invoiced_at).map((q) => q.id));
+
+  const byCompany = companies
+    .map((c) => {
+      const companyItems = items.filter((i) => i.company_id === c.id);
+      const quoteIds = new Set(companyItems.map((i) => i.quote_id));
+      const invoicedAmount = companyItems
+        .filter((i) => invoicedQuoteIds.has(i.quote_id))
+        .reduce((sum, i) => sum + Number(i.line_total), 0);
+      return {
+        name: c.name,
+        quoteCount: quoteIds.size,
+        amount: companyItems.reduce((sum, i) => sum + Number(i.line_total), 0),
+        invoicedAmount,
+      };
+    })
+    .sort((a, b) => b.invoicedAmount - a.invoicedAmount);
+
+  const totalInvoicedByCompany = byCompany.reduce((sum, c) => sum + c.invoicedAmount, 0);
+  const leaderCompany = byCompany.find((c) => c.invoicedAmount > 0) ?? null;
 
   return (
     <div className="space-y-6">
@@ -72,7 +87,7 @@ export default async function AdminStatsPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
         <GlassCard>
           <p className="text-xs text-[var(--ink-muted)]">Total cotizaciones</p>
           <p className="text-2xl font-semibold">{totalQuotes}</p>
@@ -90,6 +105,13 @@ export default async function AdminStatsPage() {
         <GlassCard>
           <p className="text-xs text-[var(--ink-muted)]">Vendedores activos</p>
           <p className="text-2xl font-semibold">{sellers.length}</p>
+        </GlassCard>
+        <GlassCard>
+          <p className="text-xs text-[var(--ink-muted)]">Empresa con mayor facturación</p>
+          <p className="text-2xl font-semibold">{leaderCompany ? leaderCompany.name : "—"}</p>
+          {leaderCompany && (
+            <p className="text-xs text-[var(--ink-muted)]">{money(leaderCompany.invoicedAmount)}</p>
+          )}
         </GlassCard>
       </div>
 
@@ -138,14 +160,25 @@ export default async function AdminStatsPage() {
       </GlassCard>
 
       <GlassCard strong>
-        <h2 className="mb-3 text-sm font-medium">Por empresa</h2>
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-sm font-medium">Por empresa</h2>
+          <p className="text-xs text-[var(--ink-muted)]">
+            Total facturado: <strong className="text-[var(--ink)]">{money(totalInvoicedByCompany)}</strong>
+          </p>
+        </div>
+        <p className="mb-3 text-xs text-[var(--ink-muted)]">
+          &quot;Facturado&quot; suma las líneas de esa empresa dentro de cotizaciones ya
+          facturadas (aproximado: no reparte descuento por pronto pago ni IVA, que se
+          calculan sobre toda la cotización).
+        </p>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="text-xs text-[var(--ink-muted)]">
                 <th className="py-2 pr-3">Empresa</th>
                 <th className="py-2 pr-3">Cotizaciones con sus productos</th>
-                <th className="py-2">Importe cotizado</th>
+                <th className="py-2 pr-3">Importe cotizado</th>
+                <th className="py-2">Facturado</th>
               </tr>
             </thead>
             <tbody>
@@ -153,7 +186,8 @@ export default async function AdminStatsPage() {
                 <tr key={c.name} className="border-t border-black/5 dark:border-white/10">
                   <td className="py-2 pr-3">{c.name}</td>
                   <td className="py-2 pr-3">{c.quoteCount}</td>
-                  <td className="py-2">{money(c.amount)}</td>
+                  <td className="py-2 pr-3">{money(c.amount)}</td>
+                  <td className="py-2 font-medium">{money(c.invoicedAmount)}</td>
                 </tr>
               ))}
             </tbody>

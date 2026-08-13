@@ -41,3 +41,47 @@ export async function toggleCompanyActiveAction(formData: FormData) {
 
   revalidatePath("/admin/catalog/companies");
 }
+
+/** Sube un catálogo PDF (u otro archivo) a un bucket público para esa empresa. */
+export async function uploadCatalogAction(formData: FormData) {
+  const { supabase, user } = await requireRole("admin");
+
+  const companyId = String(formData.get("company_id") ?? "");
+  const file = formData.get("catalog_file");
+  if (!companyId) throw new Error("Falta la empresa.");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Selecciona un archivo de catálogo.");
+  }
+
+  const path = `${companyId}/${Date.now()}-${file.name}`;
+  const { error: uploadError } = await supabase.storage
+    .from("company-catalogs")
+    .upload(path, file, { upsert: false });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error: insertError } = await supabase.from("company_catalogs").insert({
+    company_id: companyId,
+    file_path: path,
+    file_name: file.name,
+    uploaded_by: user.id,
+  });
+  if (insertError) throw new Error(insertError.message);
+
+  revalidatePath("/admin/catalog/companies");
+  revalidatePath("/products");
+}
+
+export async function deleteCatalogAction(formData: FormData) {
+  await requireRole("admin");
+  const catalogId = String(formData.get("catalog_id") ?? "");
+  const filePath = String(formData.get("file_path") ?? "");
+  if (!catalogId) throw new Error("Falta el catálogo.");
+
+  const supabase = await createClient();
+  await supabase.storage.from("company-catalogs").remove([filePath]);
+  const { error } = await supabase.from("company_catalogs").delete().eq("id", catalogId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/catalog/companies");
+  revalidatePath("/products");
+}

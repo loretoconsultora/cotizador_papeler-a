@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { requireProfile } from "@/lib/auth/require-user";
 import { createClient } from "@/lib/supabase/server";
 import { generateFolio } from "@/lib/quotes/folio";
@@ -27,4 +28,44 @@ export async function createQuoteAction() {
   }
 
   redirect(`/quotes/${quote.id}`);
+}
+
+/** Oculta la cotización del listado principal sin borrar nada. Reversible. */
+export async function archiveQuoteAction(formData: FormData) {
+  const { supabase } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { error } = await supabase.from("quotes").update({ archived: true }).eq("id", quoteId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/quotes");
+}
+
+export async function unarchiveQuoteAction(formData: FormData) {
+  const { supabase } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { error } = await supabase.from("quotes").update({ archived: false }).eq("id", quoteId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/quotes");
+}
+
+/**
+ * Borrado definitivo (la UI pide confirmación antes de enviar). En cascada
+ * se llevan también quote_items, historial de estatus, adjuntos de factura,
+ * cotizaciones de proveedor y cotejo — todas con "on delete cascade".
+ */
+export async function deleteQuoteAction(formData: FormData) {
+  const { supabase } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { error } = await supabase.from("quotes").delete().eq("id", quoteId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/quotes");
+  revalidatePath("/dashboard");
 }

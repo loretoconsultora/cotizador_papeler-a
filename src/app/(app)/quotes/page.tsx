@@ -4,7 +4,13 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { createQuoteAction } from "./actions";
+import { ConfirmButton } from "@/components/confirm-button";
+import {
+  createQuoteAction,
+  archiveQuoteAction,
+  unarchiveQuoteAction,
+  deleteQuoteAction,
+} from "./actions";
 
 type QuoteRow = {
   id: string;
@@ -15,6 +21,7 @@ type QuoteRow = {
   outcome: string;
   grand_total: number;
   created_at: string;
+  archived: boolean;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -51,10 +58,12 @@ export default async function QuotesPage({
     q?: string;
     from?: string;
     to?: string;
+    archived?: string;
   }>;
 }) {
   const filters = await searchParams;
   const supabase = await createClient();
+  const showArchived = filters.archived === "1";
 
   const { data: companiesData } = await supabase.from("companies").select("id, name").order("name");
   const companies = companiesData ?? [];
@@ -73,8 +82,9 @@ export default async function QuotesPage({
   let query = supabase
     .from("quotes")
     .select(
-      "id, folio, client_name_snapshot, company_name_snapshot, status, outcome, grand_total, created_at"
+      "id, folio, client_name_snapshot, company_name_snapshot, status, outcome, grand_total, created_at, archived"
     )
+    .eq("archived", showArchived)
     .order("created_at", { ascending: false });
 
   if (filters.status) query = query.eq("status", filters.status);
@@ -93,9 +103,23 @@ export default async function QuotesPage({
   const { data } = await query;
   const quotes = (data ?? []) as QuoteRow[];
 
+  // Conserva los demás filtros al alternar la pestaña de archivadas.
+  const otherParams = new URLSearchParams();
+  if (filters.q) otherParams.set("q", filters.q);
+  if (filters.status) otherParams.set("status", filters.status);
+  if (filters.outcome) otherParams.set("outcome", filters.outcome);
+  if (filters.company) otherParams.set("company", filters.company);
+  if (filters.from) otherParams.set("from", filters.from);
+  if (filters.to) otherParams.set("to", filters.to);
+
+  const activeHref = `/quotes?${otherParams.toString()}`;
+  const archivedParams = new URLSearchParams(otherParams);
+  archivedParams.set("archived", "1");
+  const archivedHref = `/quotes?${archivedParams.toString()}`;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Cotizaciones</h1>
           <p className="text-sm text-[var(--ink-muted)]">
@@ -107,8 +131,32 @@ export default async function QuotesPage({
         </form>
       </div>
 
+      <div className="flex gap-2 text-sm">
+        <Link
+          href={activeHref}
+          className={`rounded-full px-4 py-1.5 transition ${
+            !showArchived
+              ? "bg-brand-blue text-white"
+              : "glass text-[var(--ink-muted)] hover:text-[var(--ink)]"
+          }`}
+        >
+          Activas
+        </Link>
+        <Link
+          href={archivedHref}
+          className={`rounded-full px-4 py-1.5 transition ${
+            showArchived
+              ? "bg-brand-blue text-white"
+              : "glass text-[var(--ink-muted)] hover:text-[var(--ink)]"
+          }`}
+        >
+          Archivadas
+        </Link>
+      </div>
+
       <GlassCard strong>
-        <form className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6" method="get">
+        <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6" method="get">
+          {showArchived && <input type="hidden" name="archived" value="1" />}
           <Input name="q" placeholder="Cliente o empresa…" defaultValue={filters.q ?? ""} />
           <select name="status" defaultValue={filters.status ?? ""} className={selectClass}>
             <option value="">Todos los estatus</option>
@@ -147,34 +195,62 @@ export default async function QuotesPage({
       <section className="space-y-3">
         {quotes.length === 0 && (
           <GlassCard className="text-sm text-[var(--ink-muted)]">
-            No hay cotizaciones que coincidan con estos filtros.
+            {showArchived
+              ? "No hay cotizaciones archivadas."
+              : "No hay cotizaciones que coincidan con estos filtros."}
           </GlassCard>
         )}
         {quotes.map((q) => (
-          <Link key={q.id} href={`/quotes/${q.id}`}>
-            <GlassCard className="flex flex-wrap items-center justify-between gap-3 transition hover:bg-white/80">
-              <div>
-                <p className="font-medium">
-                  {q.client_name_snapshot || "Cliente sin nombre"}{" "}
-                  {q.company_name_snapshot && (
-                    <span className="text-[var(--ink-muted)]">
-                      · {q.company_name_snapshot}
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs text-[var(--ink-muted)]">{q.folio}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge tone="blue">{STATUS_LABEL[q.status] ?? q.status}</Badge>
-                <Badge tone={outcomeTone(q.outcome)}>
-                  {OUTCOME_LABEL[q.outcome] ?? q.outcome}
-                </Badge>
-                <span className="text-sm font-medium">
-                  ${Number(q.grand_total).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            </GlassCard>
-          </Link>
+          <GlassCard
+            key={q.id}
+            className="flex flex-col gap-3 transition hover:bg-white/80 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <Link href={`/quotes/${q.id}`} className="min-w-0 flex-1">
+              <p className="truncate font-medium">
+                {q.client_name_snapshot || "Cliente sin nombre"}{" "}
+                {q.company_name_snapshot && (
+                  <span className="text-[var(--ink-muted)]">
+                    · {q.company_name_snapshot}
+                  </span>
+                )}
+              </p>
+              <p className="text-xs text-[var(--ink-muted)]">{q.folio}</p>
+            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="blue">{STATUS_LABEL[q.status] ?? q.status}</Badge>
+              <Badge tone={outcomeTone(q.outcome)}>
+                {OUTCOME_LABEL[q.outcome] ?? q.outcome}
+              </Badge>
+              <span className="text-sm font-medium">
+                ${Number(q.grand_total).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+              </span>
+              {showArchived ? (
+                <form action={unarchiveQuoteAction}>
+                  <input type="hidden" name="quote_id" value={q.id} />
+                  <Button type="submit" variant="secondary" className="px-3 py-1.5 text-xs">
+                    Desarchivar
+                  </Button>
+                </form>
+              ) : (
+                <form action={archiveQuoteAction}>
+                  <input type="hidden" name="quote_id" value={q.id} />
+                  <Button type="submit" variant="ghost" className="px-3 py-1.5 text-xs">
+                    Archivar
+                  </Button>
+                </form>
+              )}
+              <form action={deleteQuoteAction}>
+                <input type="hidden" name="quote_id" value={q.id} />
+                <ConfirmButton
+                  confirmMessage={`¿Eliminar definitivamente la cotización ${q.folio}? Esta acción no se puede deshacer.`}
+                  variant="danger"
+                  className="px-3 py-1.5 text-xs"
+                >
+                  Eliminar
+                </ConfirmButton>
+              </form>
+            </div>
+          </GlassCard>
         ))}
       </section>
     </div>
