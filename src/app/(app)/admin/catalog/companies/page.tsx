@@ -4,12 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmButton } from "@/components/confirm-button";
-import {
-  createCompanyAction,
-  toggleCompanyActiveAction,
-  uploadCatalogAction,
-  deleteCatalogAction,
-} from "./actions";
+import { CatalogUploadForm } from "@/components/admin/catalog-upload-form";
+import { createCompanyAction, toggleCompanyActiveAction, deleteCatalogAction } from "./actions";
 
 type CompanyRow = {
   id: string;
@@ -91,12 +87,16 @@ export default async function CompaniesPage() {
 
             <div className="rounded-xl border border-black/5 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
               <p className="mb-2 text-xs font-medium text-[var(--ink-muted)]">
-                Catálogo (PDF) — visible para vendedores con esta empresa asignada
+                Catálogos (PDF) — visibles para vendedores con esta empresa asignada. Puedes subir
+                varios (por ejemplo, uno por línea de producto).
               </p>
               <div className="space-y-1.5">
                 {(catalogsByCompany.get(c.id) ?? []).map((cat) => (
                   <div key={cat.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="min-w-0 truncate">{cat.file_name}</span>
+                    <span className="min-w-0 truncate">
+                      {cat.cover_image_path ? "🖼️ " : "📄 "}
+                      {cat.file_name}
+                    </span>
                     <form action={deleteCatalogAction}>
                       <input type="hidden" name="catalog_id" value={cat.id} />
                       <input type="hidden" name="file_path" value={cat.file_path} />
@@ -114,31 +114,7 @@ export default async function CompaniesPage() {
                   <p className="text-xs text-[var(--ink-muted)]">Sin catálogo cargado todavía.</p>
                 )}
               </div>
-              <form
-                action={uploadCatalogAction}
-                className="mt-2 flex flex-wrap items-end gap-2"
-              >
-                <input type="hidden" name="company_id" value={c.id} />
-                <div className="space-y-1">
-                  <label className="block text-[11px] text-[var(--ink-muted)]">Catálogo (PDF)</label>
-                  <input
-                    type="file"
-                    name="catalog_file"
-                    accept="application/pdf"
-                    required
-                    className="text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[11px] text-[var(--ink-muted)]">
-                    Portada (imagen, opcional)
-                  </label>
-                  <input type="file" name="cover_image" accept="image/*" className="text-xs" />
-                </div>
-                <Button type="submit" variant="secondary" className="px-3 py-1.5 text-xs">
-                  Subir catálogo
-                </Button>
-              </form>
+              <CatalogUploadForm companyId={c.id} />
             </div>
           </GlassCard>
         ))}
