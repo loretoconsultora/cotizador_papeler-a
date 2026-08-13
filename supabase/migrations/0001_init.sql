@@ -265,6 +265,11 @@ create table quotes (
   invoiced_at  timestamptz,
   ordered_at   timestamptz,
   closed_at    timestamptz,
+  -- se fijan cuando "outcome" cambia a won/lost; alimentan las estadísticas
+  -- mensuales por vendedor (conversión, importe vendido, etc.) con la fecha
+  -- real del cambio en vez de aproximarla con created_at/updated_at.
+  won_at   timestamptz,
+  lost_at  timestamptz,
 
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -329,27 +334,30 @@ create policy quote_items_select on quote_items for select
     exists (select 1 from quotes q where q.id = quote_items.quote_id
             and (q.seller_id = auth.uid() or is_admin()))
   );
+-- Editable en cualquier estatus del flujo (borrador, aprobada, cotización final,
+-- factura, pedido) para poder corregir algo que cambió después. Solo se bloquea
+-- en 'closed', que representa el ciclo ya cerrado/archivado.
 create policy quote_items_insert on quote_items for insert
   to authenticated with check (
     exists (select 1 from quotes q where q.id = quote_items.quote_id
-            and q.seller_id = auth.uid() and q.status = 'draft')
+            and q.seller_id = auth.uid() and q.status <> 'closed')
     or is_admin()
   );
 create policy quote_items_update on quote_items for update
   to authenticated using (
     exists (select 1 from quotes q where q.id = quote_items.quote_id
-            and q.seller_id = auth.uid() and q.status = 'draft')
+            and q.seller_id = auth.uid() and q.status <> 'closed')
     or is_admin()
   )
   with check (
     exists (select 1 from quotes q where q.id = quote_items.quote_id
-            and q.seller_id = auth.uid() and q.status = 'draft')
+            and q.seller_id = auth.uid() and q.status <> 'closed')
     or is_admin()
   );
 create policy quote_items_delete on quote_items for delete
   to authenticated using (
     exists (select 1 from quotes q where q.id = quote_items.quote_id
-            and q.seller_id = auth.uid() and q.status = 'draft')
+            and q.seller_id = auth.uid() and q.status <> 'closed')
     or is_admin()
   );
 
