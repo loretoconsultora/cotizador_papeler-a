@@ -1,10 +1,16 @@
 -- Cotizador de Papelería — esquema inicial
 -- Proyecto Supabase independiente y exclusivo de este repositorio.
+--
+-- Orden: (1) extensiones y helpers sin dependencias de tablas, (2) TODAS las
+-- tablas, (3) is_admin() (ya puede referenciar "profiles"), (4) TODAS las
+-- políticas RLS. Las funciones `language sql` se validan contra el catálogo
+-- en el momento de crearse, así que is_admin() no puede ir antes de que
+-- exista la tabla profiles.
 
 create extension if not exists pgcrypto;
 
 -- ============================================================================
--- Helpers
+-- Helpers sin dependencias de tablas
 -- ============================================================================
 
 create or replace function set_updated_at()
@@ -15,19 +21,6 @@ begin
   new.updated_at = now();
   return new;
 end;
-$$;
-
--- security definer: puede leerse desde cualquier policy sin recursión sobre profiles.
-create or replace function is_admin()
-returns boolean
-language sql
-security definer
-set search_path = public
-stable
-as $$
-  select exists (
-    select 1 from profiles p where p.id = auth.uid() and p.role = 'admin' and p.active
-  );
 $$;
 
 -- ============================================================================
@@ -45,12 +38,6 @@ create table companies (
 create trigger set_updated_at before update on companies
   for each row execute function set_updated_at();
 
-alter table companies enable row level security;
-create policy companies_select on companies for select
-  to authenticated using (true);
-create policy companies_write on companies for all
-  to authenticated using (is_admin()) with check (is_admin());
-
 -- ============================================================================
 -- profiles — espejo de auth.users con rol
 -- ============================================================================
@@ -66,13 +53,6 @@ create table profiles (
 create trigger set_updated_at before update on profiles
   for each row execute function set_updated_at();
 
-alter table profiles enable row level security;
-create policy profiles_select on profiles for select
-  to authenticated using (id = auth.uid() or is_admin());
--- Solo admin gestiona altas/roles/estatus de cuentas (se crean vía Supabase Admin API).
-create policy profiles_write on profiles for all
-  to authenticated using (is_admin()) with check (is_admin());
-
 -- ============================================================================
 -- seller_companies — matriz vendedor ↔ empresa (1, 2 o 3 empresas por vendedor)
 -- ============================================================================
@@ -82,12 +62,6 @@ create table seller_companies (
   company_id  uuid not null references companies(id) on delete cascade,
   primary key (seller_id, company_id)
 );
-
-alter table seller_companies enable row level security;
-create policy seller_companies_select on seller_companies for select
-  to authenticated using (seller_id = auth.uid() or is_admin());
-create policy seller_companies_write on seller_companies for all
-  to authenticated using (is_admin()) with check (is_admin());
 
 -- ============================================================================
 -- products / variants / packages
@@ -128,44 +102,6 @@ create table product_packages (
   created_at         timestamptz not null default now()
 );
 
-alter table products enable row level security;
-alter table product_variants enable row level security;
-alter table product_packages enable row level security;
-
--- Un vendedor solo ve productos de las empresas que tiene asignadas; admin ve todo.
-create policy products_select on products for select
-  to authenticated using (
-    is_admin() or exists (
-      select 1 from seller_companies sc
-      where sc.seller_id = auth.uid() and sc.company_id = products.company_id
-    )
-  );
-create policy products_write on products for all
-  to authenticated using (is_admin()) with check (is_admin());
-
-create policy variants_select on product_variants for select
-  to authenticated using (
-    is_admin() or exists (
-      select 1 from products p
-      join seller_companies sc on sc.company_id = p.company_id
-      where p.id = product_variants.product_id and sc.seller_id = auth.uid()
-    )
-  );
-create policy variants_write on product_variants for all
-  to authenticated using (is_admin()) with check (is_admin());
-
-create policy packages_select on product_packages for select
-  to authenticated using (
-    is_admin() or exists (
-      select 1 from product_variants v
-      join products p on p.id = v.product_id
-      join seller_companies sc on sc.company_id = p.company_id
-      where v.id = product_packages.variant_id and sc.seller_id = auth.uid()
-    )
-  );
-create policy packages_write on product_packages for all
-  to authenticated using (is_admin()) with check (is_admin());
-
 -- ============================================================================
 -- clients — directorio EXCLUSIVO del vendedor que lo creó (admin ve todos)
 -- ============================================================================
@@ -200,17 +136,6 @@ create trigger set_updated_at before update on clients
 create index clients_created_by_idx on clients (created_by);
 create index clients_email_idx on clients (lower(email));
 create index clients_company_name_idx on clients (lower(company_name));
-
-alter table clients enable row level security;
-create policy clients_select on clients for select
-  to authenticated using (created_by = auth.uid() or is_admin());
-create policy clients_insert on clients for insert
-  to authenticated with check (created_by = auth.uid());
-create policy clients_update on clients for update
-  to authenticated using (created_by = auth.uid() or is_admin())
-  with check (created_by = auth.uid() or is_admin());
-create policy clients_delete on clients for delete
-  to authenticated using (is_admin());
 
 -- ============================================================================
 -- quotes — entidad central del flujo
@@ -280,17 +205,6 @@ create index quotes_seller_idx on quotes (seller_id);
 create index quotes_client_idx on quotes (client_id);
 create index quotes_status_idx on quotes (status);
 
-alter table quotes enable row level security;
-create policy quotes_select on quotes for select
-  to authenticated using (seller_id = auth.uid() or is_admin());
-create policy quotes_insert on quotes for insert
-  to authenticated with check (seller_id = auth.uid());
-create policy quotes_update on quotes for update
-  to authenticated using (seller_id = auth.uid() or is_admin())
-  with check (seller_id = auth.uid() or is_admin());
-create policy quotes_delete on quotes for delete
-  to authenticated using (is_admin());
-
 -- ============================================================================
 -- quote_items — líneas de la cotización cliente (fuente única; se filtra por
 -- company_id al separar en cotizaciones de proveedor)
@@ -328,6 +242,161 @@ create trigger set_updated_at before update on quote_items
 create index quote_items_quote_idx on quote_items (quote_id);
 create index quote_items_company_idx on quote_items (quote_id, company_id);
 
+-- ============================================================================
+-- quote_status_history — auditoría de transiciones
+-- ============================================================================
+
+create table quote_status_history (
+  id           uuid primary key default gen_random_uuid(),
+  quote_id     uuid not null references quotes(id) on delete cascade,
+  from_status  text,
+  to_status    text not null,
+  changed_by   uuid references profiles(id),
+  note         text,
+  created_at   timestamptz not null default now()
+);
+
+-- ============================================================================
+-- quote_attachments — facturas de proveedor (constancia fiscal vive en clients)
+-- ============================================================================
+
+create table quote_attachments (
+  id           uuid primary key default gen_random_uuid(),
+  quote_id     uuid not null references quotes(id) on delete cascade,
+  kind         text not null check (kind in ('invoice')),
+  company_id   uuid references companies(id),
+  file_path    text not null,
+  file_name    text not null,
+  uploaded_by  uuid references profiles(id),
+  created_at   timestamptz not null default now()
+);
+
+-- ============================================================================
+-- provider_quotes — una por empresa involucrada, generadas en "cotización final"
+-- ============================================================================
+
+create table provider_quotes (
+  id            uuid primary key default gen_random_uuid(),
+  quote_id      uuid not null references quotes(id) on delete cascade,
+  company_id    uuid not null references companies(id),
+  folio         text not null unique,
+  generated_at  timestamptz not null default now(),
+  unique (quote_id, company_id)
+);
+
+-- ============================================================================
+-- quote_item_fulfillment — cotejo ✓/✗ en estatus "Pedido"
+-- ============================================================================
+
+create table quote_item_fulfillment (
+  id             uuid primary key default gen_random_uuid(),
+  quote_item_id  uuid not null unique references quote_items(id) on delete cascade,
+  received       boolean,
+  checked_by     uuid references profiles(id),
+  checked_at     timestamptz,
+  note           text
+);
+
+-- ============================================================================
+-- is_admin() — ahora sí, con "profiles" ya creada.
+-- security definer: puede leerse desde cualquier policy sin recursión sobre profiles.
+-- ============================================================================
+
+create or replace function is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from profiles p where p.id = auth.uid() and p.role = 'admin' and p.active
+  );
+$$;
+
+-- ============================================================================
+-- RLS — todas las políticas, ahora que existen todas las tablas y is_admin()
+-- ============================================================================
+
+alter table companies enable row level security;
+create policy companies_select on companies for select
+  to authenticated using (true);
+create policy companies_write on companies for all
+  to authenticated using (is_admin()) with check (is_admin());
+
+alter table profiles enable row level security;
+create policy profiles_select on profiles for select
+  to authenticated using (id = auth.uid() or is_admin());
+-- Solo admin gestiona altas/roles/estatus de cuentas (se crean vía Supabase Admin API).
+create policy profiles_write on profiles for all
+  to authenticated using (is_admin()) with check (is_admin());
+
+alter table seller_companies enable row level security;
+create policy seller_companies_select on seller_companies for select
+  to authenticated using (seller_id = auth.uid() or is_admin());
+create policy seller_companies_write on seller_companies for all
+  to authenticated using (is_admin()) with check (is_admin());
+
+alter table products enable row level security;
+alter table product_variants enable row level security;
+alter table product_packages enable row level security;
+
+-- Un vendedor solo ve productos de las empresas que tiene asignadas; admin ve todo.
+create policy products_select on products for select
+  to authenticated using (
+    is_admin() or exists (
+      select 1 from seller_companies sc
+      where sc.seller_id = auth.uid() and sc.company_id = products.company_id
+    )
+  );
+create policy products_write on products for all
+  to authenticated using (is_admin()) with check (is_admin());
+
+create policy variants_select on product_variants for select
+  to authenticated using (
+    is_admin() or exists (
+      select 1 from products p
+      join seller_companies sc on sc.company_id = p.company_id
+      where p.id = product_variants.product_id and sc.seller_id = auth.uid()
+    )
+  );
+create policy variants_write on product_variants for all
+  to authenticated using (is_admin()) with check (is_admin());
+
+create policy packages_select on product_packages for select
+  to authenticated using (
+    is_admin() or exists (
+      select 1 from product_variants v
+      join products p on p.id = v.product_id
+      join seller_companies sc on sc.company_id = p.company_id
+      where v.id = product_packages.variant_id and sc.seller_id = auth.uid()
+    )
+  );
+create policy packages_write on product_packages for all
+  to authenticated using (is_admin()) with check (is_admin());
+
+alter table clients enable row level security;
+create policy clients_select on clients for select
+  to authenticated using (created_by = auth.uid() or is_admin());
+create policy clients_insert on clients for insert
+  to authenticated with check (created_by = auth.uid());
+create policy clients_update on clients for update
+  to authenticated using (created_by = auth.uid() or is_admin())
+  with check (created_by = auth.uid() or is_admin());
+create policy clients_delete on clients for delete
+  to authenticated using (is_admin());
+
+alter table quotes enable row level security;
+create policy quotes_select on quotes for select
+  to authenticated using (seller_id = auth.uid() or is_admin());
+create policy quotes_insert on quotes for insert
+  to authenticated with check (seller_id = auth.uid());
+create policy quotes_update on quotes for update
+  to authenticated using (seller_id = auth.uid() or is_admin())
+  with check (seller_id = auth.uid() or is_admin());
+create policy quotes_delete on quotes for delete
+  to authenticated using (is_admin());
+
 alter table quote_items enable row level security;
 create policy quote_items_select on quote_items for select
   to authenticated using (
@@ -361,20 +430,6 @@ create policy quote_items_delete on quote_items for delete
     or is_admin()
   );
 
--- ============================================================================
--- quote_status_history — auditoría de transiciones
--- ============================================================================
-
-create table quote_status_history (
-  id           uuid primary key default gen_random_uuid(),
-  quote_id     uuid not null references quotes(id) on delete cascade,
-  from_status  text,
-  to_status    text not null,
-  changed_by   uuid references profiles(id),
-  note         text,
-  created_at   timestamptz not null default now()
-);
-
 alter table quote_status_history enable row level security;
 create policy quote_status_history_select on quote_status_history for select
   to authenticated using (
@@ -386,21 +441,6 @@ create policy quote_status_history_insert on quote_status_history for insert
     exists (select 1 from quotes q where q.id = quote_status_history.quote_id
             and (q.seller_id = auth.uid() or is_admin()))
   );
-
--- ============================================================================
--- quote_attachments — facturas de proveedor (constancia fiscal vive en clients)
--- ============================================================================
-
-create table quote_attachments (
-  id           uuid primary key default gen_random_uuid(),
-  quote_id     uuid not null references quotes(id) on delete cascade,
-  kind         text not null check (kind in ('invoice')),
-  company_id   uuid references companies(id),
-  file_path    text not null,
-  file_name    text not null,
-  uploaded_by  uuid references profiles(id),
-  created_at   timestamptz not null default now()
-);
 
 alter table quote_attachments enable row level security;
 create policy quote_attachments_select on quote_attachments for select
@@ -418,19 +458,6 @@ create policy quote_attachments_write on quote_attachments for all
             and (q.seller_id = auth.uid() or is_admin()))
   );
 
--- ============================================================================
--- provider_quotes — una por empresa involucrada, generadas en "cotización final"
--- ============================================================================
-
-create table provider_quotes (
-  id            uuid primary key default gen_random_uuid(),
-  quote_id      uuid not null references quotes(id) on delete cascade,
-  company_id    uuid not null references companies(id),
-  folio         text not null unique,
-  generated_at  timestamptz not null default now(),
-  unique (quote_id, company_id)
-);
-
 alter table provider_quotes enable row level security;
 create policy provider_quotes_select on provider_quotes for select
   to authenticated using (
@@ -446,19 +473,6 @@ create policy provider_quotes_write on provider_quotes for all
     exists (select 1 from quotes q where q.id = provider_quotes.quote_id
             and (q.seller_id = auth.uid() or is_admin()))
   );
-
--- ============================================================================
--- quote_item_fulfillment — cotejo ✓/✗ en estatus "Pedido"
--- ============================================================================
-
-create table quote_item_fulfillment (
-  id             uuid primary key default gen_random_uuid(),
-  quote_item_id  uuid not null unique references quote_items(id) on delete cascade,
-  received       boolean,
-  checked_by     uuid references profiles(id),
-  checked_at     timestamptz,
-  note           text
-);
 
 alter table quote_item_fulfillment enable row level security;
 create policy quote_item_fulfillment_select on quote_item_fulfillment for select
