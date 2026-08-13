@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireProfile } from "@/lib/auth/require-user";
 import { createClient } from "@/lib/supabase/server";
 import { computeLineTotals } from "@/lib/quotes/totals";
 import { recomputeQuoteTotals } from "@/lib/quotes/recompute";
@@ -168,5 +169,69 @@ export async function updateItemDiscountAction(formData: FormData) {
   if (updateError) throw new Error(updateError.message);
 
   await recomputeQuoteTotals(supabase, quoteId);
+  revalidatePath(`/quotes/${quoteId}`);
+}
+
+/**
+ * Genera una cotización de proveedor por cada empresa presente en los
+ * productos de la cotización, y pasa el estatus a 'final'. No duplica
+ * quote_items — cada provider_quote es solo folio + referencia; el
+ * contenido siempre se deriva filtrando quote_items por company_id, así
+ * nunca se desincroniza si luego se edita una línea.
+ */
+export async function generateFinalQuoteAction(formData: FormData) {
+  const { supabase, user } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("id, folio, status")
+    .eq("id", quoteId)
+    .single();
+  if (quoteError || !quote) throw new Error("Cotización no encontrada.");
+  if (quote.status !== "approved") {
+    throw new Error("La cotización debe estar Aprobada antes de generar la final.");
+  }
+
+  const { data: items, error: itemsError } = await supabase
+    .from("quote_items")
+    .select("company_id, companies(short_code)")
+    .eq("quote_id", quoteId);
+  if (itemsError) throw new Error(itemsError.message);
+  if (!items || items.length === 0) {
+    throw new Error("La cotización no tiene productos.");
+  }
+
+  type ItemCompany = { company_id: string; companies: { short_code: string } | null };
+  const companies = new Map<string, string>();
+  (items as unknown as ItemCompany[]).forEach((item) => {
+    companies.set(item.company_id, item.companies?.short_code ?? "PROV");
+  });
+
+  const providerQuoteRows = Array.from(companies.entries()).map(([companyId, shortCode]) => ({
+    quote_id: quoteId,
+    company_id: companyId,
+    folio: `${quote.folio}-${shortCode}`,
+  }));
+
+  const { error: insertError } = await supabase
+    .from("provider_quotes")
+    .upsert(providerQuoteRows, { onConflict: "quote_id,company_id", ignoreDuplicates: true });
+  if (insertError) throw new Error(insertError.message);
+
+  const { error: updateError } = await supabase
+    .from("quotes")
+    .update({ status: "final", final_at: new Date().toISOString() })
+    .eq("id", quoteId);
+  if (updateError) throw new Error(updateError.message);
+
+  await supabase.from("quote_status_history").insert({
+    quote_id: quoteId,
+    from_status: "approved",
+    to_status: "final",
+    changed_by: user.id,
+  });
+
   revalidatePath(`/quotes/${quoteId}`);
 }

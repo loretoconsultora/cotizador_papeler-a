@@ -6,7 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ProductPicker } from "@/components/quotes/product-picker";
-import { removeItemAction, updateItemDiscountAction, updateQuoteHeaderAction } from "./actions";
+import {
+  generateFinalQuoteAction,
+  removeItemAction,
+  updateItemDiscountAction,
+  updateQuoteHeaderAction,
+} from "./actions";
 
 type Quote = {
   id: string;
@@ -94,7 +99,7 @@ export default async function QuoteDetailPage({
     }
   }
 
-  const [{ data: itemsData }, { data: companiesData }, { data: productsData }] =
+  const [{ data: itemsData }, { data: companiesData }, { data: productsData }, { data: providerQuotesData }] =
     await Promise.all([
       supabase
         .from("quote_items")
@@ -104,7 +109,7 @@ export default async function QuoteDetailPage({
         .eq("quote_id", quoteId)
         .order("sort_order")
         .order("created_at"),
-      supabase.from("companies").select("id, short_code"),
+      supabase.from("companies").select("id, name, short_code"),
       supabase
         .from("products")
         .select(
@@ -112,12 +117,27 @@ export default async function QuoteDetailPage({
         )
         .eq("active", true)
         .order("name"),
+      supabase
+        .from("provider_quotes")
+        .select("id, company_id, folio, generated_at")
+        .eq("quote_id", quoteId),
     ]);
 
   const items = (itemsData ?? []) as QuoteItem[];
-  const companyShortCode = new Map(
-    (companiesData ?? []).map((c: { id: string; short_code: string }) => [c.id, c.short_code])
-  );
+  const companies = (companiesData ?? []) as { id: string; name: string; short_code: string }[];
+  const companyShortCode = new Map(companies.map((c) => [c.id, c.short_code]));
+  const companyName = new Map(companies.map((c) => [c.id, c.name]));
+
+  type ProviderQuote = { id: string; company_id: string; folio: string; generated_at: string };
+  const providerQuotes = (providerQuotesData ?? []) as ProviderQuote[];
+  const providerQuoteSummaries = providerQuotes.map((pq) => {
+    const companyItems = items.filter((i) => i.company_id === pq.company_id);
+    return {
+      ...pq,
+      itemCount: companyItems.length,
+      subtotal: companyItems.reduce((sum, i) => sum + Number(i.line_total), 0),
+    };
+  });
 
   type RawVariant = {
     id: string;
@@ -173,6 +193,14 @@ export default async function QuoteDetailPage({
               </Button>
             </Link>
           )}
+          {quote.status === "approved" && (
+            <form action={generateFinalQuoteAction}>
+              <input type="hidden" name="quote_id" value={quote.id} />
+              <Button type="submit" className="px-4 py-2 text-sm">
+                Generar cotización final
+              </Button>
+            </form>
+          )}
         </div>
       </div>
 
@@ -215,6 +243,31 @@ export default async function QuoteDetailPage({
             )}
           </div>
         </GlassCard>
+      )}
+
+      {providerQuoteSummaries.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium text-[var(--ink-muted)]">
+            Cotizaciones por proveedor
+          </h2>
+          {providerQuoteSummaries.map((pq) => (
+            <GlassCard key={pq.id} className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-2 font-medium">
+                  <Badge tone="sky">{companyShortCode.get(pq.company_id) ?? "?"}</Badge>
+                  {companyName.get(pq.company_id) ?? "Proveedor"}
+                </p>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  {pq.folio} · {pq.itemCount} producto(s) · $
+                  {pq.subtotal.toFixed(2)}
+                </p>
+              </div>
+              <Button variant="secondary" disabled className="px-3 py-1.5 text-xs" title="Próximamente">
+                Descargar PDF (próximamente)
+              </Button>
+            </GlassCard>
+          ))}
+        </section>
       )}
 
       <GlassCard strong>
