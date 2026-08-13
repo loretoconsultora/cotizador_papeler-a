@@ -20,10 +20,14 @@ export default function AdminHomePage() {
             </p>
           </GlassCard>
         </Link>
-        <GlassCard className="opacity-60">
-          <h2 className="font-medium">Catálogo</h2>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">Próximamente.</p>
-        </GlassCard>
+        <Link href="/admin/catalog">
+          <GlassCard className="h-full transition hover:bg-white/80">
+            <h2 className="font-medium">Catálogo</h2>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Empresas, productos, variantes y paquetes.
+            </p>
+          </GlassCard>
+        </Link>
         <GlassCard className="opacity-60">
           <h2 className="font-medium">Estadísticas</h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">Próximamente.</p>
