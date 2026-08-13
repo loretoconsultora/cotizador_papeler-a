@@ -24,6 +24,12 @@ export function TopNav({ profile }: { profile: Profile }) {
             >
               Dashboard
             </Link>
+            <Link
+              href="/quotes"
+              className="rounded-full px-3 py-1.5 transition hover:bg-black/5 hover:text-[var(--ink)] dark:hover:bg-white/10"
+            >
+              Cotizaciones
+            </Link>
             {profile.role === "admin" && (
               <Link
                 href="/admin"
