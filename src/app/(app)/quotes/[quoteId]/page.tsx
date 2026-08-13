@@ -16,6 +16,7 @@ import {
   setBackorderAction,
   updateFulfillmentAction,
   updateItemDiscountAction,
+  updateOutcomeAction,
   updateQuoteHeaderAction,
 } from "./actions";
 
@@ -23,6 +24,8 @@ type Quote = {
   id: string;
   folio: string;
   status: string;
+  outcome: string;
+  lost_reason: string | null;
   client_id: string | null;
   client_name_snapshot: string;
   company_name_snapshot: string;
@@ -81,7 +84,7 @@ export default async function QuoteDetailPage({
   const { data: quoteData } = await supabase
     .from("quotes")
     .select(
-      "id, folio, status, client_id, client_name_snapshot, company_name_snapshot, phone_snapshot, email_snapshot, address_snapshot, purchase_condition, payment_method, prompt_payment_enabled, prompt_payment_pct, special_client_enabled, rfc_snapshot, tax_regime_snapshot, cfdi_use_snapshot, carrier_name, delivery_type, delivery_address, subtotal, discount_total, iva_total, iva_pct, grand_total"
+      "id, folio, status, outcome, lost_reason, client_id, client_name_snapshot, company_name_snapshot, phone_snapshot, email_snapshot, address_snapshot, purchase_condition, payment_method, prompt_payment_enabled, prompt_payment_pct, special_client_enabled, rfc_snapshot, tax_regime_snapshot, cfdi_use_snapshot, carrier_name, delivery_type, delivery_address, subtotal, discount_total, iva_total, iva_pct, grand_total"
     )
     .eq("id", quoteId)
     .single();
@@ -284,6 +287,31 @@ export default async function QuoteDetailPage({
           )}
         </div>
       </div>
+
+      <GlassCard className="flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium text-[var(--ink-muted)]">Resultado:</span>
+        <form action={updateOutcomeAction} className="flex flex-wrap items-center gap-2">
+          <input type="hidden" name="quote_id" value={quote.id} />
+          <select
+            name="outcome"
+            defaultValue={quote.outcome}
+            className="rounded-xl border border-black/10 bg-white/70 px-3 py-2 text-sm outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 dark:border-white/10 dark:bg-white/5"
+          >
+            <option value="in_progress">En seguimiento</option>
+            <option value="won">Ganada</option>
+            <option value="lost">Perdida</option>
+          </select>
+          <Input
+            name="lost_reason"
+            placeholder="Motivo (si se perdió)"
+            defaultValue={quote.lost_reason ?? ""}
+            className="w-56"
+          />
+          <Button type="submit" variant="secondary" className="px-3 py-2 text-sm">
+            Guardar
+          </Button>
+        </form>
+      </GlassCard>
 
       {quote.status !== "draft" && (
         <GlassCard>

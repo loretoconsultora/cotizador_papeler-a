@@ -444,3 +444,31 @@ export async function closeBackorderAction(formData: FormData) {
 
   revalidatePath(`/quotes/${quoteId}`);
 }
+
+/**
+ * Cambia el resultado comercial (Ganada / En seguimiento / Perdida).
+ * Independiente del estatus operativo — una cotización se puede perder en
+ * cualquier punto del flujo, no solo al final.
+ */
+export async function updateOutcomeAction(formData: FormData) {
+  const { supabase } = await requireProfile();
+  const quoteId = String(formData.get("quote_id") ?? "");
+  const outcome = String(formData.get("outcome") ?? "in_progress");
+  const lostReason = String(formData.get("lost_reason") ?? "").trim() || null;
+  if (!quoteId) throw new Error("Falta la cotización.");
+
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    outcome,
+    lost_reason: outcome === "lost" ? lostReason : null,
+  };
+  if (outcome === "won") patch.won_at = now;
+  if (outcome === "lost") patch.lost_at = now;
+
+  const { error } = await supabase.from("quotes").update(patch).eq("id", quoteId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/quotes/${quoteId}`);
+  revalidatePath("/quotes");
+  revalidatePath("/dashboard");
+}
