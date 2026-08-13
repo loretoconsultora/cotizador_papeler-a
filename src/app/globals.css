@@ -1,11 +1,72 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand-blue: #1d94c2;
+  --color-brand-green: #3bff8f;
+  --color-brand-sky: #70d8ff;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
 :root {
-  --background: #f7f7f5;
-  --foreground: #1c1c1c;
+  --bg: #f5f7f9;
+  --bg-glow-1: rgba(29, 148, 194, 0.16);
+  --bg-glow-2: rgba(59, 255, 143, 0.12);
+  --bg-glow-3: rgba(112, 216, 255, 0.2);
+
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 8px 32px rgba(15, 23, 32, 0.08);
+
+  --ink: #0b0b0c;
+  --ink-muted: #6b7280;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #060607;
+    --bg-glow-1: rgba(29, 148, 194, 0.28);
+    --bg-glow-2: rgba(59, 255, 143, 0.14);
+    --bg-glow-3: rgba(112, 216, 255, 0.18);
+
+    --glass-bg: rgba(255, 255, 255, 0.06);
+    --glass-bg-strong: rgba(255, 255, 255, 0.1);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+
+    --ink: #f5f5f7;
+    --ink-muted: #9aa0a6;
+  }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Fondo tipo "mesh gradient" — desenfocado, discreto, propio del look Apple
+   sobre el que flotan las tarjetas de vidrio. */
+.bg-mesh {
+  background:
+    radial-gradient(640px circle at 8% 8%, var(--bg-glow-1), transparent 60%),
+    radial-gradient(520px circle at 92% 15%, var(--bg-glow-3), transparent 55%),
+    radial-gradient(720px circle at 50% 105%, var(--bg-glow-2), transparent 55%);
+  background-attachment: fixed;
+}
+
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-strong {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }

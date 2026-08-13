@@ -1,29 +1,34 @@
 import Link from "next/link";
+import { GlassCard } from "@/components/ui/glass-card";
 
 export default function AdminHomePage() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Administración</h1>
-        <p className="text-sm text-neutral-500">
+        <h1 className="text-2xl font-semibold tracking-tight">Administración</h1>
+        <p className="text-sm text-[var(--ink-muted)]">
           Catálogo de productos, gestión de vendedores y estadísticas
           globales.
         </p>
       </div>
-      <nav className="flex flex-wrap gap-3">
-        <Link
-          href="/admin/sellers"
-          className="rounded border border-neutral-300 px-4 py-2 text-sm"
-        >
-          Vendedores
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Link href="/admin/sellers">
+          <GlassCard className="h-full transition hover:bg-white/80">
+            <h2 className="font-medium">Vendedores</h2>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Altas, empresas asignadas y estatus de cuentas.
+            </p>
+          </GlassCard>
         </Link>
-        <span className="rounded border border-dashed border-neutral-200 px-4 py-2 text-sm text-neutral-400">
-          Catálogo (próximamente)
-        </span>
-        <span className="rounded border border-dashed border-neutral-200 px-4 py-2 text-sm text-neutral-400">
-          Estadísticas (próximamente)
-        </span>
-      </nav>
+        <GlassCard className="opacity-60">
+          <h2 className="font-medium">Catálogo</h2>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">Próximamente.</p>
+        </GlassCard>
+        <GlassCard className="opacity-60">
+          <h2 className="font-medium">Estadísticas</h2>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">Próximamente.</p>
+        </GlassCard>
+      </div>
     </div>
   );
 }

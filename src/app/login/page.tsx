@@ -3,6 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { GlassCard } from "@/components/ui/glass-card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,62 +38,58 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center p-6">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-lg border border-neutral-200 p-6"
-      >
-        <div>
-          <h1 className="text-lg font-semibold">Cotizador de Papelería</h1>
-          <p className="text-sm text-neutral-500">
-            Acceso exclusivo para el equipo de ventas.
+      <GlassCard strong className="w-full max-w-sm">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-1 text-center">
+            <div className="mx-auto mb-2 h-10 w-10 rounded-2xl bg-linear-to-br from-brand-blue to-brand-sky" />
+            <h1 className="text-lg font-semibold tracking-tight">
+              Cotizador de Papelería
+            </h1>
+            <p className="text-sm text-[var(--ink-muted)]">
+              Acceso exclusivo para el equipo de ventas.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="email" className="text-sm font-medium">
+              Correo
+            </label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="password" className="text-sm font-medium">
+              Contraseña
+            </label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? "Ingresando…" : "Ingresar"}
+          </Button>
+
+          <p className="text-center text-xs text-[var(--ink-muted)]">
+            ¿No tienes cuenta? Contacta al administrador — las cuentas se
+            crean internamente, sin registro público.
           </p>
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="email" className="text-sm font-medium">
-            Correo
-          </label>
-          <input
-            id="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="password" className="text-sm font-medium">
-            Contraseña
-          </label>
-          <input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {loading ? "Ingresando…" : "Ingresar"}
-        </button>
-
-        <p className="text-xs text-neutral-400">
-          ¿No tienes cuenta? Contacta al administrador — las cuentas se crean
-          internamente, sin registro público.
-        </p>
-      </form>
+        </form>
+      </GlassCard>
     </main>
   );
 }
