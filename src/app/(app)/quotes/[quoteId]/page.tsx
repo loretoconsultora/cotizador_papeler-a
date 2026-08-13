@@ -242,8 +242,15 @@ export default async function QuoteDetailPage({
             {quote.client_name_snapshot || "Cotización nueva"}
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge tone="blue">{STATUS_LABEL[quote.status] ?? quote.status}</Badge>
+          {items.length > 0 && (
+            <a href={`/api/quotes/${quote.id}/pdf/client`} target="_blank" rel="noreferrer">
+              <Button variant="secondary" className="px-4 py-2 text-sm">
+                Descargar cotización cliente
+              </Button>
+            </a>
+          )}
           {quote.status === "draft" && (
             <Link href={`/quotes/${quote.id}/approve`}>
               <Button variant="primary" className="px-4 py-2 text-sm">
@@ -337,14 +344,15 @@ export default async function QuoteDetailPage({
                     {pq.subtotal.toFixed(2)}
                   </p>
                 </div>
-                <Button
-                  variant="secondary"
-                  disabled
-                  className="px-3 py-1.5 text-xs"
-                  title="Próximamente"
+                <a
+                  href={`/api/quotes/${quote.id}/pdf/provider/${pq.company_id}`}
+                  target="_blank"
+                  rel="noreferrer"
                 >
-                  Descargar PDF (próximamente)
-                </Button>
+                  <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                    Descargar PDF
+                  </Button>
+                </a>
               </div>
 
               {pq.invoices.length > 0 && (
@@ -440,7 +448,14 @@ export default async function QuoteDetailPage({
 
           {missingItems.length > 0 && (
             <GlassCard className="space-y-3">
-              <h3 className="text-sm font-medium">Faltantes</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Faltantes</h3>
+                <a href={`/api/quotes/${quote.id}/pdf/missing`} target="_blank" rel="noreferrer">
+                  <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                    Descargar listado
+                  </Button>
+                </a>
+              </div>
               <ul className="list-inside list-disc space-y-1 text-sm text-[var(--ink-muted)]">
                 {missingItems.map((item) => (
                   <li key={item.id}>
