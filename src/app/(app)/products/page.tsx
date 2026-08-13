@@ -12,6 +12,8 @@ function money(n: number) {
   return n.toLocaleString("es-MX", { style: "currency", currency: "MXN", minimumFractionDigits: 0 });
 }
 
+const MEDALS = ["🥇", "🥈", "🥉"];
+
 type ItemRow = {
   quote_id: string;
   product_id: string;
@@ -27,6 +29,7 @@ type CatalogRow = {
   company_id: string;
   file_path: string;
   file_name: string;
+  cover_image_path: string | null;
   created_at: string;
   companies: { name: string } | { name: string }[] | null;
 };
@@ -46,7 +49,7 @@ export default async function ProductsPage() {
     supabase.from("companies").select("id, name").order("name"),
     supabase
       .from("company_catalogs")
-      .select("id, company_id, file_path, file_name, created_at, companies(name)")
+      .select("id, company_id, file_path, file_name, cover_image_path, created_at, companies(name)")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -88,8 +91,8 @@ export default async function ProductsPage() {
         {list.map((p, idx) => (
           <li key={p.productId} className="flex items-center justify-between gap-3 text-sm">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-blue/10 text-xs font-semibold text-brand-blue">
-                {idx + 1}
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-blue/10 text-sm">
+                {MEDALS[idx] ?? idx + 1}
               </span>
               <div className="min-w-0">
                 <p className="truncate font-medium">{p.name}</p>
@@ -110,25 +113,99 @@ export default async function ProductsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Productos</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Productos 🚀</h1>
         <p className="text-sm text-[var(--ink-muted)]">
-          Productos estrella (según cotizaciones ya facturadas) y catálogos para enviar al cliente.
+          Catálogos listos para compartir y tus productos estrella ⭐ según cotizaciones ya facturadas.
         </p>
       </div>
 
+      <GlassCard strong>
+        <h2 className="mb-1 text-sm font-medium">📚 Catálogos por empresa</h2>
+        <p className="mb-4 text-xs text-[var(--ink-muted)]">
+          Los catálogos vigentes que subió el admin. &quot;Enviar por WhatsApp&quot; abre WhatsApp
+          con el enlace del catálogo listo para pegar al chat del cliente.
+        </p>
+        <div className="space-y-5">
+          {companies
+            .filter((c) => catalogsByCompany.has(c.id))
+            .map((c) => (
+              <div key={c.id} className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{c.name}</span>
+                  <Badge tone="blue">{catalogsByCompany.get(c.id)!.length}</Badge>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {catalogsByCompany.get(c.id)!.map((cat) => {
+                    const { data: pub } = supabase.storage
+                      .from("company-catalogs")
+                      .getPublicUrl(cat.file_path);
+                    const url = pub.publicUrl;
+                    const coverUrl = cat.cover_image_path
+                      ? supabase.storage.from("company-catalogs").getPublicUrl(cat.cover_image_path)
+                          .data.publicUrl
+                      : null;
+                    const waText = encodeURIComponent(`Catálogo ${c.name}: ${url}`);
+                    return (
+                      <div
+                        key={cat.id}
+                        className="overflow-hidden rounded-xl border border-black/10 bg-white/60 dark:border-white/10 dark:bg-white/5"
+                      >
+                        {coverUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={coverUrl} alt={cat.file_name} className="h-32 w-full object-cover" />
+                        ) : (
+                          <div className="flex h-32 w-full items-center justify-center bg-brand-blue/5 text-3xl">
+                            📄
+                          </div>
+                        )}
+                        <div className="space-y-2 p-3">
+                          <span className="block truncate text-sm">{cat.file_name}</span>
+                          <div className="flex gap-1.5">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex-1 rounded-full bg-brand-blue/10 px-2.5 py-1.5 text-center text-xs font-medium text-brand-blue hover:bg-brand-blue/20"
+                            >
+                              Ver
+                            </a>
+                            <a
+                              href={`https://wa.me/?text=${waText}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex-1 rounded-full bg-[#25D366]/10 px-2.5 py-1.5 text-center text-xs font-medium text-[#128C4A] hover:bg-[#25D366]/20"
+                            >
+                              WhatsApp 💬
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          {catalogs.length === 0 && (
+            <p className="text-sm text-[var(--ink-muted)]">
+              Todavía no hay catálogos cargados. El admin puede subirlos desde Admin → Catálogo → Empresas.
+            </p>
+          )}
+        </div>
+      </GlassCard>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <GlassCard strong>
-          <h2 className="mb-3 text-sm font-medium">Top 3 más vendidos (unidades)</h2>
+          <h2 className="mb-3 text-sm font-medium">🏆 Top 3 más vendidos (unidades)</h2>
           {rankList(topByUnits, "units")}
         </GlassCard>
         <GlassCard strong>
-          <h2 className="mb-3 text-sm font-medium">Top 3 mayor facturación</h2>
+          <h2 className="mb-3 text-sm font-medium">💰 Top 3 mayor facturación</h2>
           {rankList(topByRevenue, "revenue")}
         </GlassCard>
       </div>
 
       <GlassCard strong>
-        <h2 className="mb-3 text-sm font-medium">Historial mensual de productos estrella</h2>
+        <h2 className="mb-3 text-sm font-medium">📅 Historial mensual de productos estrella</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
@@ -173,68 +250,6 @@ export default async function ProductsPage() {
               ))}
             </tbody>
           </table>
-        </div>
-      </GlassCard>
-
-      <GlassCard strong>
-        <h2 className="mb-1 text-sm font-medium">Catálogos por empresa</h2>
-        <p className="mb-4 text-xs text-[var(--ink-muted)]">
-          Los catálogos vigentes que subió el admin. &quot;Enviar por WhatsApp&quot; abre WhatsApp
-          con el enlace del catálogo listo para pegar al chat del cliente.
-        </p>
-        <div className="space-y-4">
-          {companies
-            .filter((c) => catalogsByCompany.has(c.id))
-            .map((c) => (
-              <div key={c.id} className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{c.name}</span>
-                  <Badge tone="blue">{catalogsByCompany.get(c.id)!.length}</Badge>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {catalogsByCompany.get(c.id)!.map((cat) => {
-                    const { data: pub } = supabase.storage
-                      .from("company-catalogs")
-                      .getPublicUrl(cat.file_path);
-                    const url = pub.publicUrl;
-                    const waText = encodeURIComponent(
-                      `Catálogo ${c.name}: ${url}`
-                    );
-                    return (
-                      <div
-                        key={cat.id}
-                        className="flex items-center justify-between gap-2 rounded-xl border border-black/10 bg-white/60 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/5"
-                      >
-                        <span className="min-w-0 truncate">{cat.file_name}</span>
-                        <div className="flex shrink-0 gap-1.5">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-full px-2.5 py-1 text-xs font-medium text-brand-blue hover:bg-brand-blue/10"
-                          >
-                            Ver
-                          </a>
-                          <a
-                            href={`https://wa.me/?text=${waText}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-full bg-[#25D366]/10 px-2.5 py-1 text-xs font-medium text-[#128C4A] hover:bg-[#25D366]/20"
-                          >
-                            WhatsApp
-                          </a>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          {catalogs.length === 0 && (
-            <p className="text-sm text-[var(--ink-muted)]">
-              Todavía no hay catálogos cargados. El admin puede subirlos desde Admin → Catálogo → Empresas.
-            </p>
-          )}
         </div>
       </GlassCard>
     </div>

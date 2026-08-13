@@ -27,7 +27,42 @@ export async function createQuoteAction() {
     throw new Error(error?.message ?? "No se pudo crear la cotización.");
   }
 
-  redirect(`/quotes/${quote.id}`);
+  redirect(`/quotes/${quote.id}/new`);
+}
+
+export type ClientMatch = {
+  id: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+};
+
+/**
+ * Busca (dentro de los clientes del propio vendedor — así lo scopea RLS) un
+ * cliente ya registrado cuyo nombre o empresa coincidan exactamente
+ * (ignorando mayúsculas/minúsculas) con lo que se está capturando, para
+ * precargar teléfono/correo/dirección. Se llama desde un componente cliente
+ * en el blur de esos campos, no como acción de formulario.
+ */
+export async function searchClientMatchAction(
+  clientName: string,
+  companyName: string
+): Promise<ClientMatch | null> {
+  const { supabase } = await requireProfile();
+  const name = clientName.trim();
+  const company = companyName.trim();
+  if (!name && !company) return null;
+
+  const [byName, byCompany] = await Promise.all([
+    name
+      ? supabase.from("clients").select("id, phone, email, address").ilike("client_name", name).limit(1)
+      : Promise.resolve({ data: [] as ClientMatch[] }),
+    company
+      ? supabase.from("clients").select("id, phone, email, address").ilike("company_name", company).limit(1)
+      : Promise.resolve({ data: [] as ClientMatch[] }),
+  ]);
+
+  return (byName.data?.[0] ?? byCompany.data?.[0] ?? null) as ClientMatch | null;
 }
 
 /** Oculta la cotización del listado principal sin borrar nada. Reversible. */

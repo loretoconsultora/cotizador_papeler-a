@@ -29,7 +29,7 @@ export async function requireProfile() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, full_name, role, active")
+    .select("id, full_name, role, active, avatar_path")
     .eq("id", user.id)
     .single<Profile>();
 

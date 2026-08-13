@@ -22,6 +22,7 @@ type QuoteRow = {
   grand_total: number;
   created_at: string;
   archived: boolean;
+  confirmed_at: string | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -79,10 +80,19 @@ export default async function QuotesPage({
     );
   }
 
+  const { data: pendingDraftsData } = await supabase
+    .from("quotes")
+    .select("id, folio, client_name_snapshot, company_name_snapshot")
+    .eq("status", "draft")
+    .eq("archived", false)
+    .is("confirmed_at", null)
+    .order("created_at", { ascending: false });
+  const pendingDrafts = pendingDraftsData ?? [];
+
   let query = supabase
     .from("quotes")
     .select(
-      "id, folio, client_name_snapshot, company_name_snapshot, status, outcome, grand_total, created_at, archived"
+      "id, folio, client_name_snapshot, company_name_snapshot, status, outcome, grand_total, created_at, archived, confirmed_at"
     )
     .eq("archived", showArchived)
     .order("created_at", { ascending: false });
@@ -130,6 +140,24 @@ export default async function QuotesPage({
           <Button type="submit">Nueva cotización</Button>
         </form>
       </div>
+
+      {pendingDrafts.length > 0 && (
+        <GlassCard className="border border-amber-300/60 bg-amber-50/80 dark:bg-amber-950/20">
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+            ⚠️ Tienes {pendingDrafts.length} cotización(es) en borrador pendientes de revisión.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {pendingDrafts.map((d) => (
+              <li key={d.id}>
+                <Link href={`/quotes/${d.id}/new`} className="text-amber-800 underline dark:text-amber-300">
+                  {d.client_name_snapshot || "Cliente sin nombre"}
+                  {d.company_name_snapshot ? ` · ${d.company_name_snapshot}` : ""} — continuar ({d.folio})
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </GlassCard>
+      )}
 
       <div className="flex gap-2 text-sm">
         <Link
@@ -205,7 +233,12 @@ export default async function QuotesPage({
             key={q.id}
             className="flex flex-col gap-3 transition hover:bg-white/80 sm:flex-row sm:items-center sm:justify-between"
           >
-            <Link href={`/quotes/${q.id}`} className="min-w-0 flex-1">
+            <Link
+              href={
+                q.status === "draft" && !q.confirmed_at ? `/quotes/${q.id}/new` : `/quotes/${q.id}`
+              }
+              className="min-w-0 flex-1"
+            >
               <p className="truncate font-medium">
                 {q.client_name_snapshot || "Cliente sin nombre"}{" "}
                 {q.company_name_snapshot && (

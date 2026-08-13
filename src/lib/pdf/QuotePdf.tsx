@@ -98,6 +98,11 @@ export type QuotePdfProps = {
   carrierName?: string | null;
   deliveryLabel?: string | null;
   providerSubtotal?: number;
+
+  // Solo audience === "client" — datos del vendedor que atiende
+  sellerName?: string | null;
+  sellerPhone?: string | null;
+  sellerEmail?: string | null;
 };
 
 export function QuotePdf(props: QuotePdfProps) {
@@ -108,10 +113,19 @@ export function QuotePdf(props: QuotePdfProps) {
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <Text style={styles.brand}>
-            {isClient ? "Cotización" : `Cotización a proveedor — ${props.providerCompanyName ?? ""}`}
+            {isClient
+              ? "Cotización Distribuidor Papelero Villar"
+              : `Cotización a proveedor — ${props.providerCompanyName ?? ""}`}
           </Text>
           <Text style={styles.subtitle}>{formatDate(props.createdAt)}</Text>
           <Text style={styles.folio}>Folio: {props.folio}</Text>
+          {isClient && (props.sellerName || props.sellerPhone || props.sellerEmail) && (
+            <Text style={styles.folio}>
+              Atiende: {props.sellerName || "—"}
+              {props.sellerPhone ? ` · Tel. ${props.sellerPhone}` : ""}
+              {props.sellerEmail ? ` · ${props.sellerEmail}` : ""}
+            </Text>
+          )}
         </View>
 
         <View style={styles.section}>

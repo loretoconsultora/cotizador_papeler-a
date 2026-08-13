@@ -23,6 +23,7 @@ type CatalogRow = {
   company_id: string;
   file_path: string;
   file_name: string;
+  cover_image_path: string | null;
 };
 
 export default async function CompaniesPage() {
@@ -31,7 +32,7 @@ export default async function CompaniesPage() {
     supabase.from("companies").select("*").order("name"),
     supabase
       .from("company_catalogs")
-      .select("id, company_id, file_path, file_name")
+      .select("id, company_id, file_path, file_name, cover_image_path")
       .order("created_at", { ascending: false }),
   ]);
   const companies = (data ?? []) as CompanyRow[];
@@ -115,16 +116,25 @@ export default async function CompaniesPage() {
               </div>
               <form
                 action={uploadCatalogAction}
-                className="mt-2 flex flex-wrap items-center gap-2"
+                className="mt-2 flex flex-wrap items-end gap-2"
               >
                 <input type="hidden" name="company_id" value={c.id} />
-                <input
-                  type="file"
-                  name="catalog_file"
-                  accept="application/pdf"
-                  required
-                  className="text-xs"
-                />
+                <div className="space-y-1">
+                  <label className="block text-[11px] text-[var(--ink-muted)]">Catálogo (PDF)</label>
+                  <input
+                    type="file"
+                    name="catalog_file"
+                    accept="application/pdf"
+                    required
+                    className="text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[11px] text-[var(--ink-muted)]">
+                    Portada (imagen, opcional)
+                  </label>
+                  <input type="file" name="cover_image" accept="image/*" className="text-xs" />
+                </div>
                 <Button type="submit" variant="secondary" className="px-3 py-1.5 text-xs">
                   Subir catálogo
                 </Button>

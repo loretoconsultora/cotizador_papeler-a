@@ -2,22 +2,50 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { signOutAction } from "@/lib/auth/actions";
 import type { Profile } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 
-const linkClass =
-  "rounded-full px-3 py-1.5 transition hover:bg-black/5 hover:text-[var(--ink)] dark:hover:bg-white/10";
+function Avatar({ url, name, size = 28 }: { url: string | null; name: string; size?: number }) {
+  if (url) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return (
+      <img
+        src={url}
+        alt={name}
+        style={{ width: size, height: size }}
+        className="shrink-0 rounded-full object-cover"
+      />
+    );
+  }
+  const initial = name.trim().charAt(0).toUpperCase() || "?";
+  return (
+    <span
+      style={{ width: size, height: size }}
+      className="flex shrink-0 items-center justify-center rounded-full bg-brand-blue/15 text-xs font-semibold text-brand-blue"
+    >
+      {initial}
+    </span>
+  );
+}
 
-export function TopNav({ profile }: { profile: Profile }) {
+export function TopNav({ profile, avatarUrl }: { profile: Profile; avatarUrl: string | null }) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
 
   const links = [
-    { href: "/dashboard", label: "Dashboard" },
+    { href: "/dashboard", label: "Reportes" },
     { href: "/quotes", label: "Cotizaciones" },
     ...(profile.role === "seller" ? [{ href: "/products", label: "Productos" }] : []),
+    { href: "/clients", label: "Clientes" },
     ...(profile.role === "admin" ? [{ href: "/admin", label: "Admin" }] : []),
+    { href: "/profile", label: "Perfil" },
   ];
+
+  function isActive(href: string) {
+    return href === "/dashboard" ? pathname === href : pathname.startsWith(href);
+  }
 
   return (
     <header className="glass sticky top-0 z-40">
@@ -33,16 +61,25 @@ export function TopNav({ profile }: { profile: Profile }) {
           <Badge tone={profile.role === "admin" ? "blue" : "sky"} className="hidden sm:inline-flex">
             {profile.role === "admin" ? "Administrador" : "Vendedor"}
           </Badge>
-          <nav className="hidden items-center gap-1 text-sm text-[var(--ink-muted)] sm:flex">
+          <nav className="hidden items-center gap-1 text-sm sm:flex">
             {links.map((l) => (
-              <Link key={l.href} href={l.href} className={linkClass}>
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`rounded-full px-3 py-1.5 transition ${
+                  isActive(l.href)
+                    ? "bg-brand-blue/10 font-medium text-brand-blue"
+                    : "text-[var(--ink-muted)] hover:bg-black/5 hover:text-[var(--ink)] dark:hover:bg-white/10"
+                }`}
+              >
                 {l.label}
               </Link>
             ))}
           </nav>
         </div>
 
-        <div className="hidden items-center gap-4 text-sm sm:flex">
+        <div className="hidden items-center gap-3 text-sm sm:flex">
+          <Avatar url={avatarUrl} name={profile.full_name} />
           <span className="text-[var(--ink-muted)]">{profile.full_name}</span>
           <form action={signOutAction}>
             <button
@@ -74,6 +111,7 @@ export function TopNav({ profile }: { profile: Profile }) {
       {open && (
         <div className="border-t border-black/5 px-4 pb-4 sm:hidden dark:border-white/10">
           <div className="flex items-center gap-2 pt-3 pb-1">
+            <Avatar url={avatarUrl} name={profile.full_name} />
             <Badge tone={profile.role === "admin" ? "blue" : "sky"}>
               {profile.role === "admin" ? "Administrador" : "Vendedor"}
             </Badge>
@@ -85,7 +123,11 @@ export function TopNav({ profile }: { profile: Profile }) {
                 key={l.href}
                 href={l.href}
                 onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2 transition hover:bg-black/5 dark:hover:bg-white/10"
+                className={`rounded-lg px-3 py-2 transition ${
+                  isActive(l.href)
+                    ? "bg-brand-blue/10 font-medium text-brand-blue"
+                    : "hover:bg-black/5 dark:hover:bg-white/10"
+                }`}
               >
                 {l.label}
               </Link>

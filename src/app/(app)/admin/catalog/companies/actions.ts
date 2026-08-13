@@ -42,12 +42,17 @@ export async function toggleCompanyActiveAction(formData: FormData) {
   revalidatePath("/admin/catalog/companies");
 }
 
-/** Sube un catálogo PDF (u otro archivo) a un bucket público para esa empresa. */
+/**
+ * Sube un catálogo PDF (obligatorio) y opcionalmente una imagen de portada
+ * para esa empresa — la portada es lo que ve el vendedor en /products antes
+ * de abrir el PDF.
+ */
 export async function uploadCatalogAction(formData: FormData) {
   const { supabase, user } = await requireRole("admin");
 
   const companyId = String(formData.get("company_id") ?? "");
   const file = formData.get("catalog_file");
+  const coverFile = formData.get("cover_image");
   if (!companyId) throw new Error("Falta la empresa.");
   if (!(file instanceof File) || file.size === 0) {
     throw new Error("Selecciona un archivo de catálogo.");
@@ -59,10 +64,20 @@ export async function uploadCatalogAction(formData: FormData) {
     .upload(path, file, { upsert: false });
   if (uploadError) throw new Error(uploadError.message);
 
+  let coverImagePath: string | null = null;
+  if (coverFile instanceof File && coverFile.size > 0) {
+    coverImagePath = `${companyId}/cover-${Date.now()}-${coverFile.name}`;
+    const { error: coverError } = await supabase.storage
+      .from("company-catalogs")
+      .upload(coverImagePath, coverFile, { upsert: false });
+    if (coverError) throw new Error(coverError.message);
+  }
+
   const { error: insertError } = await supabase.from("company_catalogs").insert({
     company_id: companyId,
     file_path: path,
     file_name: file.name,
+    cover_image_path: coverImagePath,
     uploaded_by: user.id,
   });
   if (insertError) throw new Error(insertError.message);

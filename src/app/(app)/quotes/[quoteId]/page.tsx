@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ProductPicker } from "@/components/quotes/product-picker";
+import { ClientDataFields } from "@/components/quotes/client-data-fields";
 import {
   attachInvoiceAction,
   closeBackorderAction,
@@ -16,6 +17,7 @@ import {
   setBackorderAction,
   updateFulfillmentAction,
   updateItemDiscountAction,
+  updateItemQuantityAction,
   updateOutcomeAction,
   updateQuoteHeaderAction,
 } from "./actions";
@@ -364,7 +366,7 @@ export default async function QuoteDetailPage({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="flex items-center gap-2 font-medium">
-                    <Badge tone="sky">{companyShortCode.get(pq.company_id) ?? "?"}</Badge>
+                    <Badge tone="blue">{companyShortCode.get(pq.company_id) ?? "?"}</Badge>
                     {companyName.get(pq.company_id) ?? "Proveedor"}
                   </p>
                   <p className="text-xs text-[var(--ink-muted)]">
@@ -435,8 +437,8 @@ export default async function QuoteDetailPage({
               <GlassCard key={item.id} className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="flex flex-wrap items-center gap-2 font-medium">
-                    <Badge tone="sky">{companyShortCode.get(item.company_id) ?? "?"}</Badge>
-                    {item.sku_snapshot && <Badge tone="blue">{item.sku_snapshot}</Badge>}
+                    <Badge tone="blue">{companyShortCode.get(item.company_id) ?? "?"}</Badge>
+                    {item.sku_snapshot && <Badge tone="sky">{item.sku_snapshot}</Badge>}
                     {item.product_name_snapshot} — {item.variant_name_snapshot}
                   </p>
                   <p className="text-xs text-[var(--ink-muted)]">
@@ -537,26 +539,16 @@ export default async function QuoteDetailPage({
         <form action={updateQuoteHeaderAction} className="grid gap-4 sm:grid-cols-2">
           <input type="hidden" name="quote_id" value={quote.id} />
 
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Nombre del cliente</label>
-            <Input name="client_name" defaultValue={quote.client_name_snapshot} required disabled={!editable} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Empresa</label>
-            <Input name="company_name" defaultValue={quote.company_name_snapshot} required disabled={!editable} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Teléfono</label>
-            <Input name="phone" defaultValue={quote.phone_snapshot ?? ""} disabled={!editable} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Correo</label>
-            <Input name="email" type="email" defaultValue={quote.email_snapshot ?? ""} disabled={!editable} />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <label className="text-sm font-medium">Dirección de la empresa</label>
-            <Input name="address" defaultValue={quote.address_snapshot ?? ""} disabled={!editable} />
-          </div>
+          <ClientDataFields
+            defaults={{
+              client_name: quote.client_name_snapshot,
+              company_name: quote.company_name_snapshot,
+              phone: quote.phone_snapshot ?? "",
+              email: quote.email_snapshot ?? "",
+              address: quote.address_snapshot ?? "",
+            }}
+            disabled={!editable}
+          />
 
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Condición de compra</label>
@@ -646,8 +638,8 @@ export default async function QuoteDetailPage({
           <GlassCard key={item.id} className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="flex flex-wrap items-center gap-2 font-medium">
-                <Badge tone="sky">{companyShortCode.get(item.company_id) ?? "?"}</Badge>
-                {item.sku_snapshot && <Badge tone="blue">{item.sku_snapshot}</Badge>}
+                <Badge tone="blue">{companyShortCode.get(item.company_id) ?? "?"}</Badge>
+                {item.sku_snapshot && <Badge tone="sky">{item.sku_snapshot}</Badge>}
                 {item.product_name_snapshot} — {item.variant_name_snapshot}
               </p>
               <p className="text-xs text-[var(--ink-muted)]">
@@ -658,6 +650,24 @@ export default async function QuoteDetailPage({
               </p>
             </div>
             <div className="flex items-center gap-3">
+              {editable && (
+                <form action={updateItemQuantityAction} className="flex items-center gap-1">
+                  <input type="hidden" name="quote_id" value={quote.id} />
+                  <input type="hidden" name="item_id" value={item.id} />
+                  <input
+                    name="quantity"
+                    type="number"
+                    step="1"
+                    min="1"
+                    defaultValue={item.quantity_packages ?? item.quantity_units}
+                    title={item.units_per_package_snapshot ? "Número de paquetes" : "Cantidad de unidades"}
+                    className="w-16 rounded-lg border border-black/10 bg-white/70 px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5"
+                  />
+                  <button type="submit" className="text-xs text-brand-blue underline">
+                    Actualizar
+                  </button>
+                </form>
+              )}
               {quote.special_client_enabled && editable && (
                 <form action={updateItemDiscountAction} className="flex items-center gap-1">
                   <input type="hidden" name="quote_id" value={quote.id} />

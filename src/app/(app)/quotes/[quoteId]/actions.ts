@@ -39,6 +39,7 @@ export async function updateQuoteHeaderAction(formData: FormData) {
 
   await recomputeQuoteTotals(supabase, quoteId);
   revalidatePath(`/quotes/${quoteId}`);
+  revalidatePath(`/quotes/${quoteId}/new`);
 }
 
 /**
@@ -117,6 +118,7 @@ export async function addItemAction(formData: FormData) {
 
   await recomputeQuoteTotals(supabase, quoteId);
   revalidatePath(`/quotes/${quoteId}`);
+  revalidatePath(`/quotes/${quoteId}/new`);
 }
 
 export async function removeItemAction(formData: FormData) {
@@ -130,6 +132,7 @@ export async function removeItemAction(formData: FormData) {
 
   await recomputeQuoteTotals(supabase, quoteId);
   revalidatePath(`/quotes/${quoteId}`);
+  revalidatePath(`/quotes/${quoteId}/new`);
 }
 
 /** Descuento "cliente especial" — por línea, solo relevante si está activo en el encabezado. */
@@ -170,6 +173,58 @@ export async function updateItemDiscountAction(formData: FormData) {
 
   await recomputeQuoteTotals(supabase, quoteId);
   revalidatePath(`/quotes/${quoteId}`);
+}
+
+/**
+ * Cambia la cantidad de una línea ya agregada (paquetes o unidades sueltas,
+ * según cómo se haya agregado originalmente) sin tener que quitarla y
+ * volver a capturarla. Reutilizada por el editor completo y por el paso 3
+ * del asistente de creación.
+ */
+export async function updateItemQuantityAction(formData: FormData) {
+  const quoteId = String(formData.get("quote_id") ?? "");
+  const itemId = String(formData.get("item_id") ?? "");
+  const quantityInput = Number(formData.get("quantity") ?? 0);
+
+  if (!quoteId || !itemId || !Number.isFinite(quantityInput) || quantityInput <= 0) {
+    throw new Error("Cantidad inválida.");
+  }
+
+  const supabase = await createClient();
+
+  const { data: item, error: itemError } = await supabase
+    .from("quote_items")
+    .select("unit_price_snapshot, units_per_package_snapshot, package_id, discount_pct")
+    .eq("id", itemId)
+    .single();
+  if (itemError || !item) throw new Error("Línea no encontrada.");
+
+  const quantityPackages = item.package_id ? Math.round(quantityInput) : null;
+  const quantityUnits = item.package_id
+    ? quantityPackages! * (item.units_per_package_snapshot ?? 1)
+    : Math.round(quantityInput);
+
+  const { lineSubtotal, discountAmount, lineTotal } = computeLineTotals(
+    Number(item.unit_price_snapshot),
+    quantityUnits,
+    item.discount_pct
+  );
+
+  const { error: updateError } = await supabase
+    .from("quote_items")
+    .update({
+      quantity_packages: quantityPackages,
+      quantity_units: quantityUnits,
+      line_subtotal: lineSubtotal,
+      discount_amount: discountAmount,
+      line_total: lineTotal,
+    })
+    .eq("id", itemId);
+  if (updateError) throw new Error(updateError.message);
+
+  await recomputeQuoteTotals(supabase, quoteId);
+  revalidatePath(`/quotes/${quoteId}`);
+  revalidatePath(`/quotes/${quoteId}/new`);
 }
 
 /**
